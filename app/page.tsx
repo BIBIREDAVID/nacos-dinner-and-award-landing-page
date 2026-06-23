@@ -13,7 +13,6 @@ export default function NacosGalaLanding() {
       {/* Navigation */}
       <nav className="relative z-10 flex items-center justify-between px-6 py-6 max-w-7xl mx-auto w-full">
         <div className="flex items-center space-x-3">
-          {/* NACOS Logo */}
           <div className="relative w-10 h-10 flex-shrink-0">
              <Image 
               src="/nacos-logo.png" 
@@ -33,7 +32,6 @@ export default function NacosGalaLanding() {
       {/* Hero Section */}
       <main className="relative z-10 w-full max-w-7xl mx-auto px-6 pt-16 pb-24 lg:pt-28 flex flex-col lg:flex-row items-center justify-between gap-16">
         
-        {/* Left Column: Copy & CTAs */}
         <div className="flex-1 space-y-8">
           <div className="space-y-4">
             <div className="inline-flex items-center space-x-2 px-3 py-1.5 rounded-full bg-[#2a134d]/50 border border-purple-800/50 text-xs font-mono text-green-400">
@@ -63,7 +61,6 @@ export default function NacosGalaLanding() {
           </div>
         </div>
 
-        {/* Right Column: Floating Spec Card */}
         <div className="w-full lg:w-[400px]">
           <div className="p-8 rounded-2xl bg-[#1e0a3c]/80 backdrop-blur-xl border border-purple-800/40 shadow-2xl space-y-6">
             <div className="border-b border-purple-800/40 pb-4">
@@ -100,7 +97,7 @@ export default function NacosGalaLanding() {
         </div>
       </main>
 
-      {/* Info Bar (Quick Stats) */}
+      {/* Info Bar */}
       <div className="relative z-10 border-t border-purple-900/50 bg-[#140626]/80 backdrop-blur-md w-full">
         <div className="max-w-7xl mx-auto px-6 py-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 divide-x divide-purple-900/50">
@@ -125,23 +122,19 @@ export default function NacosGalaLanding() {
       </div>
 
       {/* About Section */}
-      <section className="relative z-10 w-full bg-[#f6f5f2] pt-24 pb-12">
+      <section className="relative z-10 w-full bg-[#0a0514] pt-24 pb-12 border-t border-purple-900/30">
         <div className="max-w-6xl mx-auto px-6 flex flex-col lg:flex-row gap-16 items-center">
-          
-          {/* Left Content */}
           <div className="flex-1">
             <p className="text-[#d46b53] text-xs font-bold tracking-widest uppercase mb-4">About The Gala</p>
-            <h2 className="text-4xl md:text-5xl font-serif text-zinc-900 tracking-tight leading-tight mb-6">
+            <h2 className="text-4xl md:text-5xl font-serif text-white tracking-tight leading-tight mb-6">
               One night of mystery, elegance, and pure computing excellence.
             </h2>
-            <p className="text-zinc-600 text-base leading-relaxed max-w-lg">
+            <p className="text-zinc-400 text-base leading-relaxed max-w-lg">
               The Science of Excellence (Masked Edition) is the premier social event for the NACOS-LASU community. Hosted by the Visionary Led Administration, this dinner and award night brings together students, tech innovators, and faculty to celebrate outstanding achievements in an atmosphere of prestige and high fashion.
             </p>
           </div>
-
-          {/* Right Quote Card */}
           <div className="flex-1 w-full">
-            <div className="bg-[#110521] p-10 md:p-12 rounded-lg shadow-xl relative overflow-hidden">
+            <div className="bg-[#150a26] p-10 md:p-12 rounded-lg shadow-xl border border-purple-900/30 relative overflow-hidden">
               <div className="absolute -top-12 -right-12 w-32 h-32 bg-purple-600/20 rounded-full blur-2xl"></div>
               <p className="relative z-10 text-xl md:text-2xl font-serif text-white italic leading-relaxed mb-8">
                 "Excellence is not just what we code, it is how we celebrate the minds behind the machines."
@@ -151,212 +144,111 @@ export default function NacosGalaLanding() {
               </p>
             </div>
           </div>
-
         </div>
       </section>
 
-      {/* Tickets Section (Light Theme Contrast) */}
-      <section id="tickets" className="relative z-10 w-full bg-[#f6f5f2] pt-12 pb-24">
+      {/* Tickets Section (Dark Theme Applied) */}
+      <section id="tickets" className="relative z-10 w-full bg-[#0a0514] pt-12 pb-24 border-t border-purple-900/30">
         <div className="max-w-6xl mx-auto px-6">
-          
-          {/* Section Header */}
           <div className="mb-12">
             <p className="text-[#d46b53] text-xs font-bold tracking-widest uppercase mb-4">Choose Your Tier</p>
-            <h2 className="text-4xl md:text-5xl font-serif text-zinc-900 tracking-tight">
-              Three ways to attend — pick what fits.
-            </h2>
+            <h2 className="text-4xl md:text-5xl font-serif text-white tracking-tight">Three ways to attend — pick what fits.</h2>
           </div>
-
-          {/* Ticket Cards Container */}
-          <div className="bg-white rounded-2xl shadow-2xl flex flex-col md:flex-row overflow-hidden border border-zinc-200">
-            
-            {/* Card 1: Regular */}
-            <div className="flex-1 p-8 md:p-10 relative border-b md:border-b-0 md:border-r border-dashed border-zinc-300 flex flex-col">
-              <div className="hidden md:block absolute -top-4 left-1/2 -translate-x-1/2 w-8 h-8 rounded-full bg-[#f6f5f2]"></div>
-              
-              <div className="inline-block px-3 py-1 bg-zinc-100 text-zinc-600 text-[10px] font-bold uppercase tracking-widest rounded w-fit mb-6">
-                Regular
-              </div>
-              
-              <h3 className="text-xl font-medium text-zinc-900">Standard Pass</h3>
-              
-              <div className="mt-4 mb-2">
-                <span className="text-4xl font-bold text-zinc-900">₦5,000</span>
-              </div>
-              
-              <p className="text-xs font-mono text-zinc-500 mb-8">Single entry ticket</p>
-              
-              <ul className="space-y-4 text-sm text-zinc-600 flex-1">
-                <li className="flex items-start gap-3">
-                  <span className="text-zinc-400 font-bold">+</span> Standard Event Entry
-                </li>
-                <li className="flex items-start gap-3">
-                  <span className="text-zinc-400 font-bold">+</span> Red Carpet Access
-                </li>
-                <li className="flex items-start gap-3">
-                  <span className="text-zinc-400 font-bold">+</span> Standard Seating
-                </li>
+          <div className="bg-[#150a26] rounded-2xl shadow-2xl flex flex-col md:flex-row overflow-hidden border border-purple-900/30">
+            {/* Card 1 */}
+            <div className="flex-1 p-8 md:p-10 border-b md:border-b-0 md:border-r border-dashed border-purple-900/50 flex flex-col">
+              <div className="inline-block px-3 py-1 bg-purple-900/30 text-purple-300 text-[10px] font-bold uppercase tracking-widest rounded w-fit mb-6">Regular</div>
+              <h3 className="text-xl font-medium text-white">Standard Pass</h3>
+              <div className="mt-4 mb-2"><span className="text-4xl font-bold text-white">₦5,000</span></div>
+              <p className="text-xs font-mono text-zinc-400 mb-8">Single entry ticket</p>
+              <ul className="space-y-4 text-sm text-zinc-300 flex-1">
+                <li className="flex items-start gap-3">✓ Standard Event Entry</li>
+                <li className="flex items-start gap-3">✓ Red Carpet Access</li>
+                <li className="flex items-start gap-3">✓ Standard Seating</li>
               </ul>
-              
-              {/* UPDATED: Link to checkout with tier parameter */}
-              <Link href="/checkout?tier=regular" className="mt-10 w-full py-3 bg-[#1e2926] text-white text-xs font-bold uppercase tracking-wider rounded hover:bg-zinc-800 transition-colors block text-center">
-                Select Ticket
-              </Link>
+              <Link href="/checkout?tier=regular" className="mt-10 w-full py-3 bg-[#1e2926] text-white text-xs font-bold uppercase tracking-wider rounded hover:bg-purple-900 transition-colors block text-center border border-purple-800">Select Ticket</Link>
             </div>
-
-            {/* Card 2: Couples */}
-            <div className="flex-1 p-8 md:p-10 relative border-b md:border-b-0 md:border-r border-dashed border-zinc-300 flex flex-col">
-              <div className="hidden md:block absolute -top-4 left-1/2 -translate-x-1/2 w-8 h-8 rounded-full bg-[#f6f5f2]"></div>
-              
-              <div className="inline-block px-3 py-1 bg-[#f3efe6] text-[#8c744d] text-[10px] font-bold uppercase tracking-widest rounded w-fit mb-6">
-                Couples
-              </div>
-              
-              <h3 className="text-xl font-medium text-zinc-900">Double Pass</h3>
-              
-              <div className="mt-4 mb-2">
-                <span className="text-4xl font-bold text-zinc-900">₦15,000</span>
-              </div>
-              
-              <p className="text-xs font-mono text-zinc-500 mb-8">Valid for two (2) guests</p>
-              
-              <ul className="space-y-4 text-sm text-zinc-600 flex-1">
-                <li className="flex items-start gap-3">
-                  <span className="text-zinc-400 font-bold">+</span> Entry for Two Guests
-                </li>
-                <li className="flex items-start gap-3">
-                  <span className="text-zinc-400 font-bold">+</span> Red Carpet & Paparazzi
-                </li>
-                <li className="flex items-start gap-3">
-                  <span className="text-zinc-400 font-bold">+</span> Premium Seating Zone
-                </li>
+            {/* Card 2 */}
+            <div className="flex-1 p-8 md:p-10 border-b md:border-b-0 md:border-r border-dashed border-purple-900/50 flex flex-col">
+              <div className="inline-block px-3 py-1 bg-[#8c744d]/20 text-[#d4b483] text-[10px] font-bold uppercase tracking-widest rounded w-fit mb-6">Couples</div>
+              <h3 className="text-xl font-medium text-white">Double Pass</h3>
+              <div className="mt-4 mb-2"><span className="text-4xl font-bold text-white">₦15,000</span></div>
+              <p className="text-xs font-mono text-zinc-400 mb-8">Valid for two (2) guests</p>
+              <ul className="space-y-4 text-sm text-zinc-300 flex-1">
+                <li className="flex items-start gap-3">✓ Entry for Two Guests</li>
+                <li className="flex items-start gap-3">✓ Red Carpet & Paparazzi</li>
+                <li className="flex items-start gap-3">✓ Premium Seating Zone</li>
               </ul>
-              
-              {/* UPDATED: Link to checkout with tier parameter */}
-              <Link href="/checkout?tier=couples" className="mt-10 w-full py-3 bg-[#1e2926] text-white text-xs font-bold uppercase tracking-wider rounded hover:bg-zinc-800 transition-colors block text-center">
-                Select Ticket
-              </Link>
+              <Link href="/checkout?tier=couples" className="mt-10 w-full py-3 bg-[#1e2926] text-white text-xs font-bold uppercase tracking-wider rounded hover:bg-purple-900 transition-colors block text-center border border-purple-800">Select Ticket</Link>
             </div>
-
-            {/* Card 3: Table of 5 */}
-            <div className="flex-1 p-8 md:p-10 relative flex flex-col bg-[#fafaf9]">
-              <div className="hidden md:block absolute -top-4 left-1/2 -translate-x-1/2 w-8 h-8 rounded-full bg-[#f6f5f2]"></div>
-              
-              <div className="inline-block px-3 py-1 bg-[#1e2926] text-white text-[10px] font-bold uppercase tracking-widest rounded w-fit mb-6">
-                VIP
-              </div>
-              
-              <h3 className="text-xl font-medium text-zinc-900">Table of 5</h3>
-              
-              <div className="mt-4 mb-2">
-                <span className="text-4xl font-bold text-zinc-900">₦50,000</span>
-              </div>
-              
-              <p className="text-xs font-mono text-zinc-500 mb-8">Premium group experience</p>
-              
-              <ul className="space-y-4 text-sm text-zinc-600 flex-1">
-                <li className="flex items-start gap-3">
-                  <span className="text-zinc-400 font-bold">+</span> VIP Table for 5 Guests
-                </li>
-                <li className="flex items-start gap-3">
-                  <span className="text-zinc-400 font-bold">+</span> Fast-Track Entry
-                </li>
-                <li className="flex items-start gap-3">
-                  <span className="text-zinc-400 font-bold">+</span> Premium Drinks & Refreshments
-                </li>
+            {/* Card 3 */}
+            <div className="flex-1 p-8 md:p-10 flex flex-col bg-[#110521]">
+              <div className="inline-block px-3 py-1 bg-purple-600 text-white text-[10px] font-bold uppercase tracking-widest rounded w-fit mb-6">VIP</div>
+              <h3 className="text-xl font-medium text-white">Table of 5</h3>
+              <div className="mt-4 mb-2"><span className="text-4xl font-bold text-white">₦50,000</span></div>
+              <p className="text-xs font-mono text-zinc-400 mb-8">Premium group experience</p>
+              <ul className="space-y-4 text-sm text-zinc-300 flex-1">
+                <li className="flex items-start gap-3">✓ VIP Table for 5 Guests</li>
+                <li className="flex items-start gap-3">✓ Fast-Track Entry</li>
+                <li className="flex items-start gap-3">✓ Premium Refreshments</li>
               </ul>
-              
-              {/* UPDATED: Link to checkout with tier parameter */}
-              <Link href="/checkout?tier=table" className="mt-10 w-full py-3 bg-[#d98f39] text-white text-xs font-bold uppercase tracking-wider rounded hover:bg-[#c47e30] transition-colors text-center block">
-                Reserve Table
-              </Link>
+              <Link href="/checkout?tier=table" className="mt-10 w-full py-3 bg-[#d98f39] text-white text-xs font-bold uppercase tracking-wider rounded hover:bg-[#c47e30] transition-colors text-center block border border-transparent">Reserve Table</Link>
             </div>
-
           </div>
         </div>
       </section>
 
-      {/* Good To Know Section (FAQ) */}
-      <section className="relative z-10 w-full bg-[#f6f5f2] pb-24 pt-12 border-t border-zinc-200/60">
+      {/* FAQ Section (Dark Theme Applied) */}
+      <section className="relative z-10 w-full bg-[#0a0514] pb-24 pt-12 border-t border-purple-900/30">
         <div className="max-w-4xl mx-auto px-6">
-          
           <div className="mb-12">
             <p className="text-[#d46b53] text-xs font-bold tracking-widest uppercase mb-4">Good To Know</p>
-            <h2 className="text-3xl md:text-5xl font-serif text-zinc-900 tracking-tight">
-              A few common questions
-            </h2>
+            <h2 className="text-3xl md:text-5xl font-serif text-white tracking-tight">A few common questions</h2>
           </div>
-
-          <div className="border-t border-zinc-300">
-            
-            {/* FAQ 1 */}
-            <details className="group border-b border-zinc-300 [&_summary::-webkit-details-marker]:hidden" open>
-              <summary className="flex cursor-pointer items-center justify-between py-6 text-zinc-900 font-medium">
-                <span>Do I get a receipt if my ticket is reserved online?</span>
-                <span className="text-[#d46b53] font-bold text-lg group-open:hidden">+</span>
-                <span className="text-[#d46b53] font-bold text-lg hidden group-open:block">×</span>
+          <div className="border-t border-purple-900/30">
+            <details className="group border-b border-purple-900/30">
+              <summary className="flex cursor-pointer items-center justify-between py-6 text-white font-medium">
+                Do I get a receipt if my ticket is reserved online?
+                <span className="text-[#d46b53] font-bold text-lg">+</span>
               </summary>
-              <div className="pb-6 text-sm text-zinc-600 max-w-2xl leading-relaxed">
-                Yes. Every successful reservation generates an emailed receipt and a unique QR code. This is your proof of payment and entry pass — keep it on your phone or print it for check-in.
-              </div>
+              <div className="pb-6 text-sm text-zinc-400 leading-relaxed">Yes. Every successful reservation generates an emailed receipt and a unique 7-digit ticket code. This is your proof of payment and entry pass—keep it on your phone or print it for check-in.</div>
             </details>
-
-            {/* FAQ 2 */}
-            <details className="group border-b border-zinc-300 [&_summary::-webkit-details-marker]:hidden">
-              <summary className="flex cursor-pointer items-center justify-between py-6 text-zinc-900 font-medium">
-                <span>What is the dress code for the "Masked Edition"?</span>
-                <span className="text-[#d46b53] font-bold text-lg group-open:hidden">+</span>
-                <span className="text-[#d46b53] font-bold text-lg hidden group-open:block">×</span>
+            <details className="group border-b border-purple-900/30">
+              <summary className="flex cursor-pointer items-center justify-between py-6 text-white font-medium">
+                What is the dress code for the "Masked Edition"?
+                <span className="text-[#d46b53] font-bold text-lg">+</span>
               </summary>
-              <div className="pb-6 text-sm text-zinc-600 max-w-2xl leading-relaxed">
-                The dress code is Black Tie / Tech Elegant, accompanied by a masquerade mask. This is the night to swap your hoodies for suits, tuxedos, and elegant gowns.
-              </div>
+              <div className="pb-6 text-sm text-zinc-400 leading-relaxed">The dress code is Black Tie / Tech Elegant, accompanied by a masquerade mask. This is the night to swap your hoodies for suits, tuxedos, and elegant gowns.</div>
             </details>
-
-            {/* FAQ 3 */}
-            <details className="group border-b border-zinc-300 [&_summary::-webkit-details-marker]:hidden">
-              <summary className="flex cursor-pointer items-center justify-between py-6 text-zinc-900 font-medium">
-                <span>How does check-in work on the day?</span>
-                <span className="text-[#d46b53] font-bold text-lg group-open:hidden">+</span>
-                <span className="text-[#d46b53] font-bold text-lg hidden group-open:block">×</span>
+            <details className="group border-b border-purple-900/30">
+              <summary className="flex cursor-pointer items-center justify-between py-6 text-white font-medium">
+                How does check-in work on the day?
+                <span className="text-[#d46b53] font-bold text-lg">+</span>
               </summary>
-              <div className="pb-6 text-sm text-zinc-600 max-w-2xl leading-relaxed">
-                Upon arrival at the venue, our ushers will scan the QR code from your email receipt. Fast-track lines will be available for Couples and VIP Table reservations.
-              </div>
+              <div className="pb-6 text-sm text-zinc-400 leading-relaxed">Upon arrival, present your 7-digit code to our ushers. We track admissions dynamically, so guests on a Couples or Table ticket can arrive and check in at different times.</div>
             </details>
-
-            {/* FAQ 4 */}
-            <details className="group border-b border-zinc-300 [&_summary::-webkit-details-marker]:hidden">
-              <summary className="flex cursor-pointer items-center justify-between py-6 text-zinc-900 font-medium">
-                <span>What's the refund policy on paid tickets?</span>
-                <span className="text-[#d46b53] font-bold text-lg group-open:hidden">+</span>
-                <span className="text-[#d46b53] font-bold text-lg hidden group-open:block">×</span>
+            <details className="group border-b border-purple-900/30">
+              <summary className="flex cursor-pointer items-center justify-between py-6 text-white font-medium">
+                What's the refund policy on paid tickets?
+                <span className="text-[#d46b53] font-bold text-lg">+</span>
               </summary>
-              <div className="pb-6 text-sm text-zinc-600 max-w-2xl leading-relaxed">
-                Tickets are generally non-refundable. However, if you are unable to attend, you may transfer your ticket to another student by contacting the organizing committee at least 48 hours prior to the event.
-              </div>
+              <div className="pb-6 text-sm text-zinc-400 leading-relaxed">Tickets are non-refundable. However, if you are unable to attend, you may transfer your ticket to another student by contacting the organizing committee at least 48 hours prior to the event.</div>
             </details>
-
           </div>
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="mt-auto relative z-10 w-full py-8 bg-[#0a0212] border-t border-purple-900/30">
+      <footer className="mt-auto relative z-10 w-full py-8 bg-[#05020a] border-t border-purple-900/30">
         <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-4 text-sm font-medium text-purple-300/60">
           <div className="flex items-center space-x-3 text-center md:text-left">
-            <span className="text-[#d46b53] font-bold text-xl">+</span>
+            <span className="text-[#d46b53] font-bold text-xl"></span>
             <span>© 2026 NACOS-LASU · The Visionary Led Administration</span>
           </div>
-          <div className="text-center">
-            Enquiries: <a href="https://wa.me/2349027719794" className="text-purple-300 hover:text-white transition-colors">09027719794 (Big Bolaji)</a>
-          </div>
-          <div className="text-center md:text-right">
-            Built by <span className="text-purple-300">BIBIRESANMI DAVID (BIBIREDAVID)</span>
-          </div>
+          <div className="text-center">Enquiries: <a href="https://wa.me/2349027719794" className="text-purple-300 hover:text-white transition-colors">09027719794</a></div>
+          <div className="text-center md:text-right">Built by <span className="text-purple-300">BIBIRESANMI DAVID</span></div>
         </div>
       </footer>
-
     </div>
   );
 }

@@ -47,7 +47,7 @@ function CheckoutContent() {
         
         <div className="relative z-10">
           <Link href="/" className="inline-flex items-center text-purple-300 hover:text-white transition-colors mb-12 md:mb-16 text-sm font-medium">
-            ← Back to Landing
+            ← Back to Home
           </Link>
           
           <p className="text-[#d46b53] text-xs font-bold tracking-widest uppercase mb-4">Order Summary</p>
