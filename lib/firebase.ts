@@ -2,15 +2,15 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBuXHSOyin-jayBDVohxx5NsKB-MOMUpTA",
-  authDomain: "nacosdinnerandaward.firebaseapp.com",
-  projectId: "nacosdinnerandaward",
-  storageBucket: "nacosdinnerandaward.firebasestorage.app",
-  messagingSenderId: "536172996298",
-  appId: "1:536172996298:web:a367c260a8eb00addcb633"
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
 };
 
-// Initialize Firebase (This prevents Next.js hot-reload crashes)
+// Initialize Firebase 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
 // Initialize Firestore Database
