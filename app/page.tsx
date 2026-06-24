@@ -245,7 +245,7 @@ export default function NacosGalaLanding() {
             <span className="text-[#d46b53] font-bold text-xl"></span>
             <span>© 2026 NACOS-LASU · The Visionary Led Administration</span>
           </div>
-          <div className="text-center">Enquiries: <a href="https://wa.me/2349027719794" className="text-purple-300 hover:text-white transition-colors">09027719794</a></div>
+          <div className="text-center">Enquiries: <a href="https://wa.me/2349027719794" className="text-purple-300 hover:text-white transition-colors">09027719794(Big Bolaji)</a></div>
           <div className="text-center md:text-right">Built by <span className="text-purple-300">BIBIRESANMI DAVID</span></div>
         </div>
       </footer>

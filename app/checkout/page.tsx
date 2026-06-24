@@ -3,6 +3,8 @@
 import React, { useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase'; // Ensure this path points to your firebase setup
 
 function CheckoutContent() {
   const searchParams = useSearchParams();
@@ -24,16 +26,55 @@ function CheckoutContent() {
     email: '',
     phone: ''
   });
+  
+  // Loading State for the button
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleCheckout = (e: React.FormEvent) => {
+  const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: Integrate Paystack or Flutterwave API here
-    console.log("Processing payment for:", { ...formData, ticket: selectedTicket });
-    alert(`Payment triggered for ${formData.name} - ₦${selectedTicket.price.toLocaleString()}`);
+    setIsProcessing(true);
+
+    try {
+      // 1. Generate a random 7-digit code for the ticket
+      const ticketCode = Math.floor(1000000 + Math.random() * 9000000).toString();
+
+      // 2. Map the text capacity to an actual number for the database
+      const capacityMap: Record<string, number> = {
+        'regular': 1,
+        'couples': 2,
+        'table': 5
+      };
+      const totalCapacity = capacityMap[selectedTicket.id] || 1;
+
+      // 3. Save to Firebase Firestore
+      await setDoc(doc(db, "tickets", ticketCode), {
+        buyerName: formData.name,
+        email: formData.email,
+        phone: formData.phone,
+        tier: selectedTicket.id,
+        price: selectedTicket.price,
+        totalCapacity: totalCapacity,
+        admissionsUsed: 0,
+        status: 'paid', // Note: In production, set this to 'paid' ONLY after payment gateway success
+        createdAt: new Date().toISOString()
+      });
+
+      // 4. Success UI Feedback
+      alert(`Success! Payment recorded. Your unique ticket code is: ${ticketCode}\n\nCheck your Admin Dashboard!`);
+      
+      // Optional: Clear form or redirect to a success page
+      setFormData({ name: '', email: '', phone: '' });
+
+    } catch (error) {
+      console.error("Error saving ticket to Firebase:", error);
+      alert("There was an issue processing your ticket. Please try again.");
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   return (
@@ -126,9 +167,10 @@ function CheckoutContent() {
 
             <button
               type="submit"
-              className="w-full mt-4 py-4 bg-[#1b0a33] text-white font-bold uppercase tracking-widest text-sm rounded-lg hover:bg-[#2d1557] transition-all shadow-xl hover:shadow-2xl hover:-translate-y-0.5 active:translate-y-0"
+              disabled={isProcessing}
+              className="w-full mt-4 py-4 bg-[#1b0a33] text-white font-bold uppercase tracking-widest text-sm rounded-lg hover:bg-[#2d1557] transition-all shadow-xl hover:shadow-2xl hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Pay ₦{selectedTicket.price.toLocaleString()}
+              {isProcessing ? 'Processing...' : `Pay ₦${selectedTicket.price.toLocaleString()}`}
             </button>
             
             <div className="flex items-center justify-center gap-2 pt-4">
