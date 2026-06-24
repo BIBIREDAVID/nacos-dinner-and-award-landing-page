@@ -19,7 +19,7 @@ export default function ScannerPage() {
     const role = sessionStorage.getItem('nacos_role');
     // Kick out anyone who hasn't authenticated through the staff portal
     if (role !== 'admin' && role !== 'usher') {
-      router.push('/staff');
+      router.push('/admin');
     } else {
       setUserRole(role);
     }
