@@ -1,15 +1,29 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { doc, getDoc, updateDoc, increment } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 export default function ScannerPage() {
   const [scanCode, setScanCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [ticketData, setTicketData] = useState<any>(null);
   const [message, setMessage] = useState({ type: '', text: '' });
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const router = useRouter();
+
+  // Role-Based Access Control Check
+  useEffect(() => {
+    const role = sessionStorage.getItem('nacos_role');
+    // Kick out anyone who hasn't authenticated through the staff portal
+    if (role !== 'admin' && role !== 'usher') {
+      router.push('/staff');
+    } else {
+      setUserRole(role);
+    }
+  }, [router]);
 
   const handleLookup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,8 +73,7 @@ export default function ScannerPage() {
     try {
       const ticketRef = doc(db, 'tickets', ticketData.id);
       
-      // Using increment() is a crucial security step. 
-      // It prevents double-scanning if two ushers check the same ticket simultaneously.
+      // Using increment() prevents race conditions if multiple ushers handle the same ticket
       await updateDoc(ticketRef, {
         admissionsUsed: increment(1)
       });
@@ -95,7 +108,12 @@ export default function ScannerPage() {
         <div className="flex justify-between items-center mb-10 border-b border-purple-900/40 pb-4">
           <h1 className="text-2xl font-serif">Gala Control Point</h1>
           <nav className="space-x-4 text-sm font-medium">
-            <Link href="/admin/dashboard" className="text-purple-400 hover:text-white transition-colors">Dashboard</Link>
+            {/* Explicitly hide the dashboard link if the authenticated user is an usher */}
+            {userRole === 'admin' && (
+              <Link href="/admin/dashboard" className="text-purple-400 hover:text-white transition-colors">
+                Dashboard
+              </Link>
+            )}
             <span className="text-white bg-purple-900/50 px-3 py-1 rounded-full">Scanner</span>
           </nav>
         </div>

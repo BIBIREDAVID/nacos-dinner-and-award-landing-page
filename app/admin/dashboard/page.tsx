@@ -4,15 +4,27 @@ import React, { useEffect, useState } from 'react';
 import { collection, onSnapshot, query, doc, setDoc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 export default function AdminDashboard() {
+  const router = useRouter();
+  
   const [stats, setStats] = useState({ totalSold: 0, admitted: 0, revenue: 0 });
   const [caps, setCaps] = useState({ regular: 0, couples: 0, table: 0 });
   const [isEditingCaps, setIsEditingCaps] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isAuthorized, setIsAuthorized] = useState(false);
 
   useEffect(() => {
-    // 1. Listen to Live Ticket Stats
+    // 1. Strict Security Check
+    const role = sessionStorage.getItem('nacos_role');
+    if (role !== 'admin') {
+      router.push('/staff');
+      return; // Stop running the rest of the code if they aren't an admin
+    }
+    setIsAuthorized(true);
+
+    // 2. Listen to Live Ticket Stats
     const q = query(collection(db, "tickets"));
     const unsubscribeStats = onSnapshot(q, (snapshot) => {
       let sold = 0; let used = 0; let rev = 0;
@@ -25,7 +37,7 @@ export default function AdminDashboard() {
       setStats({ totalSold: sold, admitted: used, revenue: rev });
     });
 
-    // 2. Fetch Capacity Settings
+    // 3. Fetch Capacity Settings
     const fetchCaps = async () => {
       const capDoc = await getDoc(doc(db, "settings", "capacities"));
       if (capDoc.exists()) {
@@ -37,10 +49,11 @@ export default function AdminDashboard() {
         setCaps(defaults);
       }
     };
+    
     fetchCaps();
 
     return () => unsubscribeStats();
-  }, []);
+  }, [router]);
 
   const handleSaveCaps = async () => {
     setIsSaving(true);
@@ -54,6 +67,11 @@ export default function AdminDashboard() {
       setIsSaving(false);
     }
   };
+
+  // Prevent a "flash" of the dashboard before the security check kicks in
+  if (!isAuthorized) {
+    return <div className="min-h-screen bg-[#0a0514]"></div>;
+  }
 
   return (
     <div className="min-h-screen bg-[#0a0514] p-6 md:p-12 text-white font-sans selection:bg-purple-500">
