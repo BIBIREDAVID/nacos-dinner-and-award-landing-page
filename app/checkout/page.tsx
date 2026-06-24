@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState, Suspense } from 'react';
+import React, { useState, Suspense, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, collection, query, where, getCountFromServer } from 'firebase/firestore';
 import { db } from '@/lib/firebase'; // Ensure this path points to your firebase setup
 
 function CheckoutContent() {
@@ -20,27 +20,75 @@ function CheckoutContent() {
   // Fallback to regular if no valid tier is passed in the URL
   const selectedTicket = ticketData[tierParam as keyof typeof ticketData] || ticketData.regular;
 
-  // Form State
+  // Form & UI State
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     phone: ''
   });
-  
-  // Loading State for the button
   const [isProcessing, setIsProcessing] = useState(false);
+  
+  // Capacity & Inventory States
+  const [isSoldOut, setIsSoldOut] = useState(false);
+  const [isCheckingInventory, setIsCheckingInventory] = useState(true);
+
+  // Modal States
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [ticketCode, setTicketCode] = useState('');
+  const [isCopied, setIsCopied] = useState(false);
+
+  // Check Inventory on Load
+  useEffect(() => {
+    const checkAvailability = async () => {
+      try {
+        setIsCheckingInventory(true);
+        // 1. Get the max capacity for this specific tier from settings
+        const capDoc = await getDoc(doc(db, "settings", "capacities"));
+        const maxAllowed = capDoc.exists() ? capDoc.data()[selectedTicket.id] : 9999;
+
+        // 2. Count how many of these specific tickets are currently in the database
+        const q = query(collection(db, "tickets"), where("tier", "==", selectedTicket.id));
+        const snapshot = await getCountFromServer(q);
+        const totalSold = snapshot.data().count;
+
+        // 3. If sold equals or exceeds the limit, trigger the sold-out state
+        if (totalSold >= maxAllowed) {
+          setIsSoldOut(true);
+        } else {
+          setIsSoldOut(false);
+        }
+      } catch (error) {
+        console.error("Failed to verify inventory:", error);
+      } finally {
+        setIsCheckingInventory(false);
+      }
+    };
+
+    checkAvailability();
+  }, [selectedTicket.id]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+  const handleCopyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(ticketCode);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 3000); // Reset to "Copy" after 3 seconds
+    } catch (err) {
+      console.error("Failed to copy code", err);
+    }
+  };
+
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSoldOut) return; // Extra guard
     setIsProcessing(true);
 
     try {
       // 1. Generate a random 7-digit code for the ticket
-      const ticketCode = Math.floor(1000000 + Math.random() * 9000000).toString();
+      const newTicketCode = Math.floor(1000000 + Math.random() * 9000000).toString();
 
       // 2. Map the text capacity to an actual number for the database
       const capacityMap: Record<string, number> = {
@@ -51,7 +99,7 @@ function CheckoutContent() {
       const totalCapacity = capacityMap[selectedTicket.id] || 1;
 
       // 3. Save to Firebase Firestore
-      await setDoc(doc(db, "tickets", ticketCode), {
+      await setDoc(doc(db, "tickets", newTicketCode), {
         buyerName: formData.name,
         email: formData.email,
         phone: formData.phone,
@@ -63,10 +111,30 @@ function CheckoutContent() {
         createdAt: new Date().toISOString()
       });
 
-      // 4. Success UI Feedback
-      alert(`Success! Payment recorded. Your unique ticket code is: ${ticketCode}\n\nCheck your Admin Dashboard!`);
+      // 3. Save to Firebase Firestore (Your existing code)
+      await setDoc(doc(db, "tickets", newTicketCode), {
+        buyerName: formData.name,
+        // ... rest of your save logic
+      });
+
+      // 4. TRIGGER RESEND EMAIL API
+      await fetch('/api/send-ticket', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: formData.email,
+          name: formData.name,
+          ticketCode: newTicketCode,
+          tierName: selectedTicket.name,
+          capacity: selectedTicket.capacity
+        })
+      });
+
+      // 5. Trigger the custom Success Modal (Your existing code)
+      setTicketCode(newTicketCode);
+      setShowSuccessModal(true);
       
-      // Optional: Clear form or redirect to a success page
+      // Clear the form
       setFormData({ name: '', email: '', phone: '' });
 
     } catch (error) {
@@ -78,7 +146,7 @@ function CheckoutContent() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-[#0f041a] text-zinc-50 font-sans selection:bg-purple-500 selection:text-white">
+    <div className="min-h-screen flex flex-col md:flex-row bg-[#0f041a] text-zinc-50 font-sans selection:bg-purple-500 selection:text-white relative">
       
       {/* LEFT SIDE - Ticket Summary (Dark Theme) */}
       <div className="md:w-1/2 lg:w-5/12 bg-gradient-to-b from-[#1b0a33] to-[#0f041a] border-b md:border-b-0 md:border-r border-purple-900/50 p-8 md:p-12 flex flex-col justify-between relative overflow-hidden">
@@ -167,20 +235,74 @@ function CheckoutContent() {
 
             <button
               type="submit"
-              disabled={isProcessing}
-              className="w-full mt-4 py-4 bg-[#1b0a33] text-white font-bold uppercase tracking-widest text-sm rounded-lg hover:bg-[#2d1557] transition-all shadow-xl hover:shadow-2xl hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isProcessing || isSoldOut || isCheckingInventory}
+              className="w-full mt-4 py-4 bg-[#1b0a33] text-white font-bold uppercase tracking-widest text-sm rounded-lg hover:bg-[#2d1557] transition-all shadow-xl hover:shadow-2xl hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:hover:bg-[#1b0a33]"
             >
-              {isProcessing ? 'Processing...' : `Pay ₦${selectedTicket.price.toLocaleString()}`}
+              {isCheckingInventory 
+                ? 'Checking Availability...' 
+                : isSoldOut 
+                  ? 'SOLD OUT' 
+                  : isProcessing 
+                    ? 'Processing...' 
+                    : `Pay ₦${selectedTicket.price.toLocaleString()}`}
             </button>
             
             <div className="flex items-center justify-center gap-2 pt-4">
-              <span className="w-2 h-2 block rounded-full bg-green-500 animate-pulse"></span>
-              <p className="text-center text-xs text-zinc-400 font-medium">Secured Payment Processing</p>
+              <span className={`w-2 h-2 block rounded-full ${isSoldOut ? 'bg-red-500' : 'bg-green-500 animate-pulse'}`}></span>
+              <p className="text-center text-xs text-zinc-400 font-medium">
+                {isSoldOut ? 'Capacity Reached' : 'Secured Payment Processing'}
+              </p>
             </div>
           </form>
         </div>
 
       </div>
+
+      {/* SUCCESS MODAL OVERLAY */}
+      {showSuccessModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
+          <div className="bg-[#120a1c] border border-purple-900/30 rounded-2xl p-8 max-w-sm w-full shadow-2xl text-center flex flex-col items-center animate-in fade-in zoom-in duration-200">
+            
+            {/* Green Check Icon */}
+            <div className="w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center mb-4">
+              <svg className="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+
+            <h2 className="text-2xl font-serif text-white mb-2">Payment Secured</h2>
+            <p className="text-gray-400 text-sm mb-6">
+              Your registration is confirmed. Please save your unique check-in code below.
+            </p>
+
+            {/* Ticket Code Display */}
+            <div className="bg-[#0b0612] w-full py-4 rounded-xl border border-white/5 mb-6">
+              <span className="text-4xl font-bold tracking-widest text-purple-400">
+                {ticketCode}
+              </span>
+            </div>
+
+            {/* Actions */}
+            <div className="w-full space-y-3">
+              <button
+                onClick={handleCopyCode}
+                className="w-full py-3 rounded-lg font-medium transition-colors bg-purple-600 hover:bg-purple-700 text-white flex items-center justify-center gap-2"
+              >
+                {isCopied ? "Code Copied!" : "Copy Ticket Code"}
+              </button>
+              
+              <Link
+                href="/"
+                className="w-full py-3 flex items-center justify-center rounded-lg font-medium text-gray-400 hover:text-white transition-colors"
+              >
+                Return to Home
+              </Link>
+            </div>
+            
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
