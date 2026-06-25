@@ -1,111 +1,68 @@
 import { NextResponse } from 'next/server';
-import crypto from 'crypto';
-import { doc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-
-// Fix #2: cryptographically secure ticket code generator
-function generateTicketCode(): string {
-  // 4 random bytes → 8 hex characters (e.g. "a3f9c120")
-  return crypto.randomBytes(4).toString('hex').toUpperCase();
-}
-
-// Fix #6: map Squad amount (in kobo) back to the correct tier
-const TIER_MAP: Record<number, { tier: string; totalCapacity: number; tierName: string; capacityLabel: string }> = {
-  510000:  { tier: 'regular', totalCapacity: 1, tierName: 'Standard Pass',  capacityLabel: '1 Guest' },   // ₦5,000 + ₦100 fee
-  1510000: { tier: 'couples', totalCapacity: 2, tierName: 'Couples Pass',   capacityLabel: '2 Guests' },  // ₦15,000 + ₦100 fee
-  5010000: { tier: 'table',   totalCapacity: 5, tierName: 'Table of 5',     capacityLabel: '5 Guests' },  // ₦50,000 + ₦100 fee
-};
-
-// Fallback if amount doesn't match exactly (e.g. quantity > 1)
-function inferTierFromAmount(amountKobo: number): { tier: string; totalCapacity: number; tierName: string; capacityLabel: string } {
-  if (TIER_MAP[amountKobo]) return TIER_MAP[amountKobo];
-
-  // Try to infer by range
-  const naira = amountKobo / 100;
-  if (naira <= 5200)  return { tier: 'regular', totalCapacity: 1, tierName: 'Standard Pass', capacityLabel: '1 Guest' };
-  if (naira <= 15200) return { tier: 'couples', totalCapacity: 2, tierName: 'Couples Pass',  capacityLabel: '2 Guests' };
-  return { tier: 'table', totalCapacity: 5, tierName: 'Table of 5', capacityLabel: '5 Guests' };
-}
+import nodemailer from 'nodemailer';
 
 export async function POST(req: Request) {
   try {
-    const body = await req.text();
-    const signature = req.headers.get('x-squad-signature');
-    const secret = process.env.SQUAD_SECRET_KEY;
+    const body = await req.json();
+    const { email, name, ticketCode, tierName, capacity } = body;
 
-    if (!secret) return NextResponse.json({ error: 'Server config error' }, { status: 500 });
-
-    // Verify Squad HMAC-SHA512 signature
-    const hash = crypto.createHmac('sha512', secret).update(body).digest('hex');
-    if (hash.toLowerCase() !== signature?.toLowerCase()) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!email || !name || !ticketCode) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    const event = JSON.parse(body);
+    // 1. Configure the Gmail SMTP Transporter
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS, // The 16-letter App Password
+      },
+    });
 
-    if (event.Event === 'charge.completed' || event.Event === 'transaction.successful') {
-      const transactionData = event.Body;
-      const paymentRef = transactionData.transaction_ref;
+    // 2. Generate a live QR Code image URL
+    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${ticketCode}`;
 
-      // Check if the frontend already created a ticket for this reference
-      const ticketsRef = collection(db, 'tickets');
-      const q = query(ticketsRef, where('squadRef', '==', paymentRef));
-      const querySnapshot = await getDocs(q);
+    // 3. The HTML Email Template
+    const emailHtml = `
+      <div style="font-family: sans-serif; max-w-md: 600px; margin: 0 auto; background-color: #0f041a; color: #ffffff; padding: 40px; border-radius: 12px; border: 1px solid #4c1d95;">
+        <h1 style="color: #c084fc; text-align: center; font-family: serif;">NACOS Gala & Awards</h1>
+        <p style="text-align: center; color: #a1a1aa;">Your official event ticket is confirmed.</p>
+        
+        <div style="background-color: #1b0a33; padding: 24px; border-radius: 8px; margin-top: 30px; text-align: center;">
+          <h2 style="margin: 0; font-size: 24px; color: #ffffff;">${name}</h2>
+          <p style="color: #c084fc; font-weight: bold; text-transform: uppercase; letter-spacing: 2px; font-size: 12px;">${tierName} • Admits ${capacity}</p>
+          
+          <div style="margin: 30px 0;">
+            <img src="${qrCodeUrl}" alt="Ticket QR Code" style="border-radius: 8px; border: 4px solid white;" />
+          </div>
+          
+          <p style="color: #a1a1aa; font-size: 14px; margin-bottom: 8px;">Your Unique Check-in Code:</p>
+          <div style="background-color: #000000; padding: 12px; border-radius: 6px; font-size: 32px; font-weight: bold; letter-spacing: 4px; color: #c084fc;">
+            ${ticketCode}
+          </div>
+        </div>
+        
+        <p style="text-align: center; color: #71717a; font-size: 12px; margin-top: 30px;">
+          Please present this QR code or the 7-digit number at the entrance.<br/>
+          Do not share this code with anyone.
+        </p>
+      </div>
+    `;
 
-      if (querySnapshot.empty) {
-        // Frontend failed or closed early — webhook creates the ticket as fallback
+    // 4. Send the Email
+    const mailOptions = {
+      from: `"NACOS Events" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: `Your Ticket: NACOS Gala & Awards (#${ticketCode})`,
+      html: emailHtml,
+    };
 
-        // Fix #2: use crypto-secure code
-        const newTicketCode = generateTicketCode();
+    await transporter.sendMail(mailOptions);
 
-        // Fix #6: derive tier from actual payment amount instead of hardcoding 'regular'
-        const amountKobo = transactionData.amount ?? 0;
-        const tierInfo = inferTierFromAmount(amountKobo);
+    return NextResponse.json({ success: true, message: 'Email sent successfully' }, { status: 200 });
 
-        await setDoc(doc(db, 'tickets', newTicketCode), {
-          buyerName:       transactionData.customer_name  || 'Guest',
-          email:           transactionData.email,
-          phone:           transactionData.customer_mobile || 'N/A',
-          price:           amountKobo / 100,
-          tier:            tierInfo.tier,
-          totalCapacity:   tierInfo.totalCapacity,
-          admissionsUsed:  0,
-          status:          'paid',
-          squadRef:        paymentRef,
-          isWebhookFallback: true,
-          createdAt:       new Date().toISOString(),
-        });
-
-        // Fix #11: use server-side env var (no NEXT_PUBLIC_ prefix needed in API routes)
-        // Set BASE_URL=https://your-domain.vercel.app in Vercel env vars
-        const baseUrl = process.env.BASE_URL || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-        const internalSecret = process.env.INTERNAL_API_SECRET;
-
-        try {
-          await fetch(`${baseUrl}/api/send-ticket`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              // Fix #5: pass the internal secret so the route accepts the request
-              'x-internal-key': internalSecret ?? '',
-            },
-            body: JSON.stringify({
-              email:      transactionData.email,
-              name:       transactionData.customer_name || 'Guest',
-              ticketCode: newTicketCode,
-              tierName:   tierInfo.tierName,
-              capacity:   tierInfo.capacityLabel,
-            }),
-          });
-        } catch (err) {
-          console.error('Webhook email trigger failed', err);
-        }
-      }
-    }
-
-    return NextResponse.json({ status: 'success' }, { status: 200 });
   } catch (error) {
-    console.error('Webhook error:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    console.error('Email sending failed:', error);
+    return NextResponse.json({ error: 'Failed to send ticket email' }, { status: 500 });
   }
 }
