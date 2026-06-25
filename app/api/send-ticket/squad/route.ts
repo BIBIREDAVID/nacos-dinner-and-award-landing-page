@@ -148,6 +148,7 @@ export async function POST(req: Request) {
               ticketCode: newTicketCode,
               tierName:   tierInfo.tierName,
               capacity:   tierInfo.capacityLabel,
+              totalPaid:  Number(amountKobo) / 100,
             }),
           });
         } catch (err) {
