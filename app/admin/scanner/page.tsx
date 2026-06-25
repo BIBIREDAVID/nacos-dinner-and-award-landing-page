@@ -2,9 +2,17 @@
 
 import React, { useState, useEffect } from 'react';
 import { doc, getDoc, updateDoc, increment } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import { db, auth } from '@/lib/firebase';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+
+// Emails listed here get the "admin" role (can also see Dashboard link).
+// All other authenticated users are treated as "usher" (scanner only).
+const ADMIN_EMAILS = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || '')
+  .split(',')
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean);
 
 export default function ScannerPage() {
   const [scanCode, setScanCode] = useState('');
@@ -12,17 +20,21 @@ export default function ScannerPage() {
   const [ticketData, setTicketData] = useState<any>(null);
   const [message, setMessage] = useState({ type: '', text: '' });
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
   const router = useRouter();
 
-  // Role-Based Access Control Check
+  // Firebase Auth gate — replaces the old sessionStorage check
   useEffect(() => {
-    const role = sessionStorage.getItem('nacos_role');
-    // Kick out anyone who hasn't authenticated through the staff portal
-    if (role !== 'admin' && role !== 'usher') {
-      router.push('/admin');
-    } else {
-      setUserRole(role);
-    }
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        router.push('/admin');
+        return;
+      }
+      const email = user.email?.toLowerCase() || '';
+      setUserRole(ADMIN_EMAILS.includes(email) ? 'admin' : 'usher');
+      setIsAuthLoading(false);
+    });
+    return () => unsubscribe();
   }, [router]);
 
   const handleLookup = async (e: React.FormEvent) => {
@@ -43,23 +55,17 @@ export default function ScannerPage() {
 
       const data = ticketSnap.data();
 
-      // Rule 1: Check Payment Status
-      if (data.status !== 'paid') {
-        setMessage({ type: 'error', text: `Access Denied: Ticket status is ${data.status.toUpperCase()}` });
-      } 
-      // Rule 2: Check Capacity
-      else if (data.admissionsUsed >= data.totalCapacity) {
+      if (data.status !== 'paid' && data.status !== 'PAID (CASH)' && data.status !== 'COMP') {
+        setMessage({ type: 'error', text: `Access Denied: Ticket status is ${data.status?.toUpperCase()}` });
+      } else if (data.admissionsUsed >= data.totalCapacity) {
         setMessage({ type: 'error', text: 'Access Denied: All admissions for this ticket have been used.' });
-      } 
-      // Passed: Valid Ticket
-      else {
+      } else {
         setMessage({ type: 'success', text: 'Ticket Valid! Ready for Check-in.' });
       }
 
       setTicketData({ id: ticketSnap.id, ...data });
-
     } catch (error) {
-      console.error("Error fetching ticket:", error);
+      console.error('Error fetching ticket:', error);
       setMessage({ type: 'error', text: 'Connection error. Try again.' });
     } finally {
       setLoading(false);
@@ -72,22 +78,11 @@ export default function ScannerPage() {
 
     try {
       const ticketRef = doc(db, 'tickets', ticketData.id);
-      
-      // Using increment() prevents race conditions if multiple ushers handle the same ticket
-      await updateDoc(ticketRef, {
-        admissionsUsed: increment(1)
-      });
-
-      // Update local state to reflect the new scan without re-fetching
-      setTicketData({
-        ...ticketData,
-        admissionsUsed: ticketData.admissionsUsed + 1
-      });
-
+      await updateDoc(ticketRef, { admissionsUsed: increment(1) });
+      setTicketData({ ...ticketData, admissionsUsed: ticketData.admissionsUsed + 1 });
       setMessage({ type: 'success', text: 'Guest Successfully Checked In!' });
-
     } catch (error) {
-      console.error("Error checking in:", error);
+      console.error('Error checking in:', error);
       setMessage({ type: 'error', text: 'Failed to check in guest.' });
     } finally {
       setLoading(false);
@@ -100,15 +95,17 @@ export default function ScannerPage() {
     setMessage({ type: '', text: '' });
   };
 
+  // Show blank screen while Firebase resolves auth state (same as dashboard)
+  if (isAuthLoading || !userRole) return <div className="min-h-screen bg-[#0a0514]" />;
+
   return (
     <div className="min-h-screen bg-[#0a0514] text-white p-6 md:p-12 font-sans selection:bg-purple-500">
       <div className="max-w-2xl mx-auto">
-        
-        {/* Top Navigation Menu */}
+
+        {/* Top Navigation */}
         <div className="flex justify-between items-center mb-10 border-b border-purple-900/40 pb-4">
           <h1 className="text-2xl font-serif">Gala Control Point</h1>
           <nav className="space-x-4 text-sm font-medium">
-            {/* Explicitly hide the dashboard link if the authenticated user is an usher */}
             {userRole === 'admin' && (
               <Link href="/admin/dashboard" className="text-purple-400 hover:text-white transition-colors">
                 Dashboard
@@ -124,11 +121,11 @@ export default function ScannerPage() {
             <input
               type="text"
               required
-              placeholder="Enter 7-Digit Ticket Code"
+              placeholder="Enter Ticket Code"
               value={scanCode}
               onChange={(e) => setScanCode(e.target.value)}
               className="flex-1 bg-[#0a0514] border border-purple-800/50 rounded-lg px-6 py-4 text-2xl text-center tracking-widest focus:outline-none focus:border-purple-500 transition-colors"
-              maxLength={7}
+              maxLength={12}
             />
             <button
               type="submit"
@@ -150,7 +147,7 @@ export default function ScannerPage() {
         {/* Ticket Details & Action Area */}
         {ticketData && (
           <div className="bg-[#150a26] border border-purple-900/50 rounded-2xl p-8 shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-300">
-            
+
             <div className="flex justify-between items-start mb-6">
               <div>
                 <p className="text-purple-400 text-sm font-bold tracking-widest uppercase mb-1">Guest Name</p>
@@ -175,7 +172,6 @@ export default function ScannerPage() {
               </div>
             </div>
 
-            {/* Dynamic Action Button */}
             {ticketData.admissionsUsed < ticketData.totalCapacity ? (
               <div className="space-y-4">
                 {message.text && (

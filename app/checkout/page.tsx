@@ -7,6 +7,13 @@ import Script from 'next/script';
 import { doc, setDoc, getDoc, collection, query, where, getCountFromServer } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
+// Fix #2: cryptographically secure ticket code (browser-safe via Web Crypto API)
+function generateTicketCode(): string {
+  const arr = new Uint8Array(4);
+  crypto.getRandomValues(arr);
+  return Array.from(arr, (b) => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+}
+
 declare global { interface Window { squad: any; } }
 
 function CheckoutContent() {
@@ -64,7 +71,8 @@ function CheckoutContent() {
       customer_name: formData.name,
       onSuccess: async (response: any) => {
         try {
-          const newTicketCode = Math.floor(1000000 + Math.random() * 9000000).toString();
+          // Fix #2: use Web Crypto API for secure ticket codes
+          const newTicketCode = generateTicketCode();
           const baseCapacity = parseInt(selectedTicket.capacity.split(' ')[0]);
 
           await setDoc(doc(db, "tickets", newTicketCode), {
@@ -102,12 +110,43 @@ function CheckoutContent() {
         {/* Left Side: Summary */}
         <div className="md:w-1/2 bg-gradient-to-b from-[#1b0a33] to-[#0f041a] p-8 md:p-12 border-r border-purple-900/50">
           <Link href="/" className="text-purple-300 text-sm block mb-12">← Back to Home</Link>
-          <h2 className="text-4xl font-serif">{selectedTicket.name}</h2>
-          <div className="space-y-4 pt-8 mt-8 border-t border-purple-800">
-            <div className="flex justify-between"><span>Price per unit</span><span>₦{selectedTicket.price.toLocaleString()}</span></div>
-            <div className="flex justify-between"><span>Quantity</span><span>{quantity}</span></div>
-            <div className="flex justify-between text-blue-400"><span>Service Fee</span><span>₦{TRANSACTION_FEE}</span></div>
-            <div className="flex justify-between text-2xl font-bold pt-4 border-t border-purple-800"><span>Total</span><span>₦{totalToPay.toLocaleString()}</span></div>
+          <p className="text-purple-300/60 text-xs font-mono uppercase tracking-widest mb-2">Order Summary</p>
+          <h2 className="text-4xl font-serif mb-8">{selectedTicket.name}</h2>
+
+          <div className="space-y-3 text-sm">
+            {/* Ticket line */}
+            <div className="flex justify-between items-center">
+              <span className="text-zinc-400">{selectedTicket.name} × {quantity}</span>
+              <span className="text-white font-medium">₦{subtotal.toLocaleString()}</span>
+            </div>
+
+            {/* Fee line — clearly broken out */}
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <span className="text-zinc-400">Service fee</span>
+                <span className="text-[10px] bg-blue-900/30 text-blue-400 border border-blue-900/40 px-2 py-0.5 rounded-full font-mono">Platform charge</span>
+              </div>
+              <span className="text-blue-400 font-medium">₦{TRANSACTION_FEE.toLocaleString()}</span>
+            </div>
+
+            {/* Divider */}
+            <div className="border-t border-purple-800/60 pt-3 mt-1">
+              <div className="flex justify-between items-baseline">
+                <span className="text-white font-bold text-lg">Total</span>
+                <div className="text-right">
+                  <span className="text-3xl font-bold text-white">₦{totalToPay.toLocaleString()}</span>
+                  <p className="text-[11px] text-zinc-500 mt-0.5">= ₦{subtotal.toLocaleString()} + ₦{TRANSACTION_FEE} fee</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* What you get */}
+          <div className="mt-8 p-4 rounded-xl bg-white/5 border border-purple-800/30 text-xs text-zinc-400 space-y-1.5">
+            <p className="text-purple-300 font-bold uppercase tracking-widest text-[10px] mb-2">What's included</p>
+            <p>✓ Unique check-in code sent to your email</p>
+            <p>✓ Entry for {selectedTicket.capacity}</p>
+            <p>✓ Red carpet access</p>
           </div>
         </div>
 

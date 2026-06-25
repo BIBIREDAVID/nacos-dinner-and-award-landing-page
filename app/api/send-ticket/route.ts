@@ -1,59 +1,111 @@
-import { Resend } from 'resend';
 import { NextResponse } from 'next/server';
+import crypto from 'crypto';
+import { doc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Fix #2: cryptographically secure ticket code generator
+function generateTicketCode(): string {
+  // 4 random bytes → 8 hex characters (e.g. "a3f9c120")
+  return crypto.randomBytes(4).toString('hex').toUpperCase();
+}
 
-export async function POST(request: Request) {
+// Fix #6: map Squad amount (in kobo) back to the correct tier
+const TIER_MAP: Record<number, { tier: string; totalCapacity: number; tierName: string; capacityLabel: string }> = {
+  510000:  { tier: 'regular', totalCapacity: 1, tierName: 'Standard Pass',  capacityLabel: '1 Guest' },   // ₦5,000 + ₦100 fee
+  1510000: { tier: 'couples', totalCapacity: 2, tierName: 'Couples Pass',   capacityLabel: '2 Guests' },  // ₦15,000 + ₦100 fee
+  5010000: { tier: 'table',   totalCapacity: 5, tierName: 'Table of 5',     capacityLabel: '5 Guests' },  // ₦50,000 + ₦100 fee
+};
+
+// Fallback if amount doesn't match exactly (e.g. quantity > 1)
+function inferTierFromAmount(amountKobo: number): { tier: string; totalCapacity: number; tierName: string; capacityLabel: string } {
+  if (TIER_MAP[amountKobo]) return TIER_MAP[amountKobo];
+
+  // Try to infer by range
+  const naira = amountKobo / 100;
+  if (naira <= 5200)  return { tier: 'regular', totalCapacity: 1, tierName: 'Standard Pass', capacityLabel: '1 Guest' };
+  if (naira <= 15200) return { tier: 'couples', totalCapacity: 2, tierName: 'Couples Pass',  capacityLabel: '2 Guests' };
+  return { tier: 'table', totalCapacity: 5, tierName: 'Table of 5', capacityLabel: '5 Guests' };
+}
+
+export async function POST(req: Request) {
   try {
-    // 1. Receive the ticket details from the frontend
-    const body = await request.json();
-    const { email, name, ticketCode, tierName, capacity } = body;
+    const body = await req.text();
+    const signature = req.headers.get('x-squad-signature');
+    const secret = process.env.SQUAD_SECRET_KEY;
 
-    // 2. Send the email
-    const data = await resend.emails.send({
-      // NOTE: Until you verify a custom domain in Resend, you MUST use this exact 'from' address
-      from: 'NACOS Events <onboarding@resend.dev>', 
-      to: email,
-      subject: 'Your Ticket is Confirmed! | NACOS Dinner & Awards',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #0f041a; color: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #3b1c6b;">
-          
-          <div style="background-color: #1b0a33; padding: 30px; text-align: center; border-bottom: 2px solid #6b21a8;">
-            <h1 style="margin: 0; color: #d8b4fe; font-size: 24px; letter-spacing: 2px; text-transform: uppercase;">Payment Secured</h1>
-          </div>
+    if (!secret) return NextResponse.json({ error: 'Server config error' }, { status: 500 });
 
-          <div style="padding: 40px 30px;">
-            <p style="font-size: 16px; color: #e9d5ff; margin-bottom: 20px;">Hello ${name},</p>
-            <p style="font-size: 16px; color: #e9d5ff; line-height: 1.6;">Your registration for the NACOS Dinner and Awards is officially confirmed. Please present the 7-digit code below at the venue entrance.</p>
-            
-            <div style="background-color: #000000; padding: 25px; border-radius: 8px; text-align: center; margin: 30px 0; border: 1px dashed #6b21a8;">
-              <p style="margin: 0; font-size: 12px; color: #a855f7; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px;">Unique Check-in Code</p>
-              <p style="margin: 0; font-size: 42px; font-weight: bold; color: #ffffff; letter-spacing: 6px;">${ticketCode}</p>
-            </div>
+    // Verify Squad HMAC-SHA512 signature
+    const hash = crypto.createHmac('sha512', secret).update(body).digest('hex');
+    if (hash.toLowerCase() !== signature?.toLowerCase()) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
-            <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
-              <tr>
-                <td style="padding: 10px 0; border-bottom: 1px solid #3b1c6b; color: #a855f7; font-size: 14px;">Ticket Tier</td>
-                <td style="padding: 10px 0; border-bottom: 1px solid #3b1c6b; color: #ffffff; font-size: 14px; text-align: right; text-transform: capitalize;">${tierName}</td>
-              </tr>
-              <tr>
-                <td style="padding: 10px 0; border-bottom: 1px solid #3b1c6b; color: #a855f7; font-size: 14px;">Admit</td>
-                <td style="padding: 10px 0; border-bottom: 1px solid #3b1c6b; color: #ffffff; font-size: 14px; text-align: right;">${capacity}</td>
-              </tr>
-            </table>
-          </div>
+    const event = JSON.parse(body);
 
-          <div style="background-color: #0b0612; padding: 20px; text-align: center; font-size: 12px; color: #6b7280;">
-            <p style="margin: 0;">Keep this email safe. We look forward to hosting you!</p>
-          </div>
+    if (event.Event === 'charge.completed' || event.Event === 'transaction.successful') {
+      const transactionData = event.Body;
+      const paymentRef = transactionData.transaction_ref;
 
-        </div>
-      `
-    });
+      // Check if the frontend already created a ticket for this reference
+      const ticketsRef = collection(db, 'tickets');
+      const q = query(ticketsRef, where('squadRef', '==', paymentRef));
+      const querySnapshot = await getDocs(q);
 
-    return NextResponse.json({ success: true, data });
+      if (querySnapshot.empty) {
+        // Frontend failed or closed early — webhook creates the ticket as fallback
+
+        // Fix #2: use crypto-secure code
+        const newTicketCode = generateTicketCode();
+
+        // Fix #6: derive tier from actual payment amount instead of hardcoding 'regular'
+        const amountKobo = transactionData.amount ?? 0;
+        const tierInfo = inferTierFromAmount(amountKobo);
+
+        await setDoc(doc(db, 'tickets', newTicketCode), {
+          buyerName:       transactionData.customer_name  || 'Guest',
+          email:           transactionData.email,
+          phone:           transactionData.customer_mobile || 'N/A',
+          price:           amountKobo / 100,
+          tier:            tierInfo.tier,
+          totalCapacity:   tierInfo.totalCapacity,
+          admissionsUsed:  0,
+          status:          'paid',
+          squadRef:        paymentRef,
+          isWebhookFallback: true,
+          createdAt:       new Date().toISOString(),
+        });
+
+        // Fix #11: use server-side env var (no NEXT_PUBLIC_ prefix needed in API routes)
+        // Set BASE_URL=https://your-domain.vercel.app in Vercel env vars
+        const baseUrl = process.env.BASE_URL || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+        const internalSecret = process.env.INTERNAL_API_SECRET;
+
+        try {
+          await fetch(`${baseUrl}/api/send-ticket`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              // Fix #5: pass the internal secret so the route accepts the request
+              'x-internal-key': internalSecret ?? '',
+            },
+            body: JSON.stringify({
+              email:      transactionData.email,
+              name:       transactionData.customer_name || 'Guest',
+              ticketCode: newTicketCode,
+              tierName:   tierInfo.tierName,
+              capacity:   tierInfo.capacityLabel,
+            }),
+          });
+        } catch (err) {
+          console.error('Webhook email trigger failed', err);
+        }
+      }
+    }
+
+    return NextResponse.json({ status: 'success' }, { status: 200 });
   } catch (error) {
-    console.error("Resend Error:", error);
-    return NextResponse.json({ success: false, error }, { status: 500 });
+    console.error('Webhook error:', error);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
