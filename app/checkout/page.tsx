@@ -3,298 +3,147 @@
 import React, { useState, Suspense, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import Script from 'next/script'; // <-- NEW: Next.js Script loader
+import Script from 'next/script';
 import { doc, setDoc, getDoc, collection, query, where, getCountFromServer } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
-// Tell TypeScript that the Squad widget will exist on the browser window
-declare global {
-  interface Window {
-    squad: any;
-  }
-}
+declare global { interface Window { squad: any; } }
 
 function CheckoutContent() {
   const searchParams = useSearchParams();
   const tierParam = searchParams.get('tier');
 
-  // Ticket Tier Configuration
+  const TRANSACTION_FEE = 100; // Fixed Service Fee
+
   const ticketData = {
-    regular: { name: 'Standard Pass', price: 100, capacity: '1 Guest', id: 'regular' },
+    regular: { name: 'Standard Pass', price: 5000, capacity: '1 Guest', id: 'regular' },
     couples: { name: 'Couples Pass', price: 15000, capacity: '2 Guests', id: 'couples' },
     table: { name: 'Table of 5', price: 50000, capacity: '5 Guests', id: 'table' },
   };
 
   const selectedTicket = ticketData[tierParam as keyof typeof ticketData] || ticketData.regular;
 
-  // Form & UI State
+  // States
   const [formData, setFormData] = useState({ name: '', email: '', phone: '' });
+  const [quantity, setQuantity] = useState(1);
   const [isProcessing, setIsProcessing] = useState(false);
   
-  // Capacity & Inventory States
+  // Dynamic Calculations
+  const subtotal = selectedTicket.price * quantity;
+  const totalToPay = subtotal + TRANSACTION_FEE;
+
   const [isSoldOut, setIsSoldOut] = useState(false);
   const [isCheckingInventory, setIsCheckingInventory] = useState(true);
-
-  // Modal States
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [ticketCode, setTicketCode] = useState('');
-  const [isCopied, setIsCopied] = useState(false);
 
-  // Check Inventory on Load
   useEffect(() => {
     const checkAvailability = async () => {
       try {
         setIsCheckingInventory(true);
         const capDoc = await getDoc(doc(db, "settings", "capacities"));
         const maxAllowed = capDoc.exists() ? capDoc.data()[selectedTicket.id] : 9999;
-
         const q = query(collection(db, "tickets"), where("tier", "==", selectedTicket.id));
         const snapshot = await getCountFromServer(q);
-        const totalSold = snapshot.data().count;
-
-        if (totalSold >= maxAllowed) {
-          setIsSoldOut(true);
-        } else {
-          setIsSoldOut(false);
-        }
-      } catch (error) {
-        console.error("Failed to verify inventory:", error);
-      } finally {
-        setIsCheckingInventory(false);
-      }
+        setIsSoldOut(snapshot.data().count >= maxAllowed);
+      } catch (error) { console.error(error); } finally { setIsCheckingInventory(false); }
     };
     checkAvailability();
   }, [selectedTicket.id]);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
-
-  const handleCopyCode = async () => {
-    try {
-      await navigator.clipboard.writeText(ticketCode);
-      setIsCopied(true);
-      setTimeout(() => setIsCopied(false), 3000); 
-    } catch (err) {
-      console.error("Failed to copy code", err);
-    }
-  };
-
-  // --- SQUAD CHECKOUT LOGIC ---
   const handleCheckoutSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (isSoldOut || !window.squad) return;
-    
     setIsProcessing(true);
 
     const squadInstance = new window.squad({
       key: process.env.NEXT_PUBLIC_SQUAD_PUBLIC_KEY,
       email: formData.email,
-      amount: selectedTicket.price * 100, // Squad requires amount in Kobo
+      amount: totalToPay * 100, // Squad uses Kobo
       currency_code: "NGN",
       customer_name: formData.name,
-      onLoad: () => console.log("Squad widget loaded"),
-      onClose: () => {
-        setIsProcessing(false);
-        alert("Payment window closed. Transaction was not completed.");
-      },
       onSuccess: async (response: any) => {
-        // THIS ONLY RUNS IF PAYMENT IS SUCCESSFUL
         try {
           const newTicketCode = Math.floor(1000000 + Math.random() * 9000000).toString();
-          const capacityMap: Record<string, number> = { 'regular': 1, 'couples': 2, 'table': 5 };
-          const totalCapacity = capacityMap[selectedTicket.id] || 1;
+          const baseCapacity = parseInt(selectedTicket.capacity.split(' ')[0]);
 
-          // Save to Firebase (Updating your Dashboard!)
           await setDoc(doc(db, "tickets", newTicketCode), {
             buyerName: formData.name,
             email: formData.email,
             phone: formData.phone,
             tier: selectedTicket.id,
-            price: selectedTicket.price,
-            totalCapacity: totalCapacity,
+            price: subtotal,        // Ticket Revenue
+            fee: TRANSACTION_FEE,   // Fee Revenue
+            totalPaid: totalToPay,  // Combined Ledger
+            quantity: quantity,
+            totalCapacity: baseCapacity * quantity,
             admissionsUsed: 0,
             status: 'paid',
-            squadRef: response.reference || "SQUAD_TX_REF", 
+            squadRef: response.reference,
             createdAt: new Date().toISOString()
           });
 
-          // Show Success UI
           setTicketCode(newTicketCode);
           setShowSuccessModal(true);
-          setFormData({ name: '', email: '', phone: '' });
-
-        } catch (error) {
-          console.error("Error saving ticket to Firebase:", error);
-          alert("Payment successful, but error generating ticket. Please contact admin.");
-        } finally {
-          setIsProcessing(false);
-        }
-      }
+        } catch (error) { alert("Payment successful, but ticket creation failed."); }
+        finally { setIsProcessing(false); }
+      },
+      onClose: () => setIsProcessing(false)
     });
-
     squadInstance.setup();
     squadInstance.open();
   };
 
   return (
     <>
-      {/* Load the official Squad Widget Script securely */}
-      <Script 
-        src="https://checkout.squadco.com/widget/squad.min.js"
-        strategy="lazyOnload" 
-      />
-
-      <div className="min-h-screen flex flex-col md:flex-row bg-[#0f041a] text-zinc-50 font-sans selection:bg-purple-500 selection:text-white relative">
+      <Script src="https://checkout.squadco.com/widget/squad.min.js" strategy="lazyOnload" />
+      <div className="min-h-screen flex flex-col md:flex-row bg-[#0f041a] text-zinc-50 font-sans">
         
-        {/* LEFT SIDE - Ticket Summary */}
-        <div className="md:w-1/2 lg:w-5/12 bg-gradient-to-b from-[#1b0a33] to-[#0f041a] border-b md:border-b-0 md:border-r border-purple-900/50 p-8 md:p-12 flex flex-col justify-between relative overflow-hidden">
-          <div className="absolute top-[-10%] left-[-10%] w-[60%] h-[40%] bg-purple-600/20 rounded-full blur-[100px] pointer-events-none" />
-          
-          <div className="relative z-10">
-            <Link href="/" className="inline-flex items-center text-purple-300 hover:text-white transition-colors mb-12 md:mb-16 text-sm font-medium">
-              ← Back to Home
-            </Link>
-            <p className="text-[#d46b53] text-xs font-bold tracking-widest uppercase mb-4">Order Summary</p>
-            <h2 className="text-3xl md:text-4xl font-serif text-white mb-2">{selectedTicket.name}</h2>
-            <p className="text-purple-200/60 font-mono text-sm mb-8 md:mb-12">Admit: {selectedTicket.capacity}</p>
-
-            <div className="space-y-4 border-t border-purple-800/40 pt-6">
-              <div className="flex justify-between text-purple-100 text-sm md:text-base">
-                <span>Ticket Tier</span>
-                <span className="capitalize font-medium">{selectedTicket.id}</span>
-              </div>
-              <div className="flex justify-between text-purple-100 text-sm md:text-base">
-                <span>Subtotal</span>
-                <span className="font-medium">₦{selectedTicket.price.toLocaleString()}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="border-t border-purple-800/40 pt-6 mt-8 flex justify-between items-end relative z-10">
-            <span className="text-sm text-purple-300/60">Total to pay</span>
-            <span className="text-3xl md:text-4xl font-bold text-white">₦{selectedTicket.price.toLocaleString()}</span>
+        {/* Left Side: Summary */}
+        <div className="md:w-1/2 bg-gradient-to-b from-[#1b0a33] to-[#0f041a] p-8 md:p-12 border-r border-purple-900/50">
+          <Link href="/" className="text-purple-300 text-sm block mb-12">← Back to Home</Link>
+          <h2 className="text-4xl font-serif">{selectedTicket.name}</h2>
+          <div className="space-y-4 pt-8 mt-8 border-t border-purple-800">
+            <div className="flex justify-between"><span>Price per unit</span><span>₦{selectedTicket.price.toLocaleString()}</span></div>
+            <div className="flex justify-between"><span>Quantity</span><span>{quantity}</span></div>
+            <div className="flex justify-between text-blue-400"><span>Service Fee</span><span>₦{TRANSACTION_FEE}</span></div>
+            <div className="flex justify-between text-2xl font-bold pt-4 border-t border-purple-800"><span>Total</span><span>₦{totalToPay.toLocaleString()}</span></div>
           </div>
         </div>
 
-        {/* RIGHT SIDE - Checkout Form */}
-        <div className="w-full md:w-1/2 lg:w-7/12 p-8 md:p-12 lg:p-20 bg-[#f6f5f2] text-zinc-900 flex flex-col justify-center">
-          <div className="max-w-md w-full mx-auto md:mx-0">
-            <h1 className="text-2xl md:text-3xl font-serif tracking-tight mb-2">Guest Details</h1>
-            <p className="text-zinc-600 text-sm mb-8 leading-relaxed">
-              Enter your information below. Your receipt and unique 7-digit check-in code will be generated upon successful payment.
-            </p>
-
-            <form onSubmit={handleCheckoutSubmit} className="space-y-6">
-              <div>
-                <label htmlFor="name" className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-2">Full Name</label>
-                <input
-                  type="text"
-                  id="name"
-                  name="name"
-                  required
-                  value={formData.name}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-3 bg-white border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600/50 focus:border-purple-600 transition-all text-zinc-900 shadow-sm"
-                  placeholder="E.g. David Bibire"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="email" className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-2">Email Address</label>
-                <input
-                  type="email"
-                  id="email"
-                  name="email"
-                  required
-                  value={formData.email}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-3 bg-white border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600/50 focus:border-purple-600 transition-all text-zinc-900 shadow-sm"
-                  placeholder="david@example.com"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="phone" className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-2">Phone Number</label>
-                <input
-                  type="tel"
-                  id="phone"
-                  name="phone"
-                  required
-                  value={formData.phone}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-3 bg-white border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600/50 focus:border-purple-600 transition-all text-zinc-900 shadow-sm"
-                  placeholder="09012345678"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={isProcessing || isSoldOut || isCheckingInventory}
-                className="w-full mt-4 py-4 bg-[#1b0a33] text-white font-bold uppercase tracking-widest text-sm rounded-lg hover:bg-[#2d1557] transition-all shadow-xl hover:shadow-2xl hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:hover:bg-[#1b0a33]"
-              >
-                {isCheckingInventory 
-                  ? 'Checking Availability...' 
-                  : isSoldOut 
-                    ? 'SOLD OUT' 
-                    : isProcessing 
-                      ? 'Processing...' 
-                      : `Pay ₦${selectedTicket.price.toLocaleString()}`}
-              </button>
-              
-              <div className="flex items-center justify-center gap-2 pt-4">
-                <span className={`w-2 h-2 block rounded-full ${isSoldOut ? 'bg-red-500' : 'bg-orange-500 animate-pulse'}`}></span>
-                <p className="text-center text-xs text-zinc-400 font-medium">
-                  {isSoldOut ? 'Capacity Reached' : 'Secured by Squad Gateway'}
-                </p>
-              </div>
-            </form>
-          </div>
-        </div>
-
-        {/* SUCCESS MODAL OVERLAY */}
-        {showSuccessModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
-            <div className="bg-[#120a1c] border border-purple-900/30 rounded-2xl p-8 max-w-sm w-full shadow-2xl text-center flex flex-col items-center animate-in fade-in zoom-in duration-200">
-              <div className="w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center mb-4">
-                <svg className="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-              <h2 className="text-2xl font-serif text-white mb-2">Payment Secured</h2>
-              <p className="text-gray-400 text-sm mb-6">
-                Your registration is confirmed. Please save your unique check-in code below.
-              </p>
-              <div className="bg-[#0b0612] w-full py-4 rounded-xl border border-white/5 mb-6">
-                <span className="text-4xl font-bold tracking-widest text-purple-400">{ticketCode}</span>
-              </div>
-              <div className="w-full space-y-3">
-                <button
-                  onClick={handleCopyCode}
-                  className="w-full py-3 rounded-lg font-medium transition-colors bg-purple-600 hover:bg-purple-700 text-white flex items-center justify-center gap-2"
-                >
-                  {isCopied ? "Code Copied!" : "Copy Ticket Code"}
-                </button>
-                <Link href="/" className="w-full py-3 flex items-center justify-center rounded-lg font-medium text-gray-400 hover:text-white transition-colors">
-                  Return to Home
-                </Link>
-              </div>
+        {/* Right Side: Form */}
+        <div className="md:w-1/2 p-8 md:p-12 bg-[#f6f5f2] text-zinc-900">
+          <form onSubmit={handleCheckoutSubmit} className="space-y-6">
+            <div>
+              <label className="block text-xs font-bold uppercase mb-2">Quantity</label>
+              <select value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} className="w-full p-3 border rounded-lg bg-white">
+                {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} Ticket{n > 1 ? 's' : ''}</option>)}
+              </select>
             </div>
-          </div>
-        )}
+            <input required placeholder="Full Name" className="w-full p-3 border rounded-lg" onChange={(e) => setFormData({...formData, name: e.target.value})}/>
+            <input required type="email" placeholder="Email" className="w-full p-3 border rounded-lg" onChange={(e) => setFormData({...formData, email: e.target.value})}/>
+            <input required type="tel" placeholder="Phone" className="w-full p-3 border rounded-lg" onChange={(e) => setFormData({...formData, phone: e.target.value})}/>
+            <button type="submit" className="w-full py-4 bg-[#1b0a33] text-white font-bold uppercase tracking-widest text-sm rounded-lg">
+              Pay ₦{totalToPay.toLocaleString()}
+            </button>
+          </form>
+        </div>
       </div>
+      
+      {/* Success Modal */}
+      {showSuccessModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-[#120a1c] border border-purple-900/30 rounded-2xl p-8 max-w-sm w-full text-center">
+            <h2 className="text-2xl font-serif text-white mb-4">Payment Secured</h2>
+            <div className="bg-[#0b0612] py-4 rounded-xl mb-6 text-4xl font-bold text-purple-400 tracking-widest">{ticketCode}</div>
+            <button onClick={() => setShowSuccessModal(false)} className="w-full py-3 bg-purple-600 rounded-lg text-white font-bold">Done</button>
+          </div>
+        </div>
+      )}
     </>
   );
 }
 
 export default function CheckoutPage() {
-  return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center bg-[#0f041a] text-purple-300 font-mono text-sm">
-        Loading secure checkout...
-      </div>
-    }>
-      <CheckoutContent />
-    </Suspense>
-  );
+  return <Suspense fallback={<div>Loading...</div>}><CheckoutContent /></Suspense>;
 }

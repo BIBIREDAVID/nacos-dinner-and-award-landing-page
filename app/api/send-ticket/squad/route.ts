@@ -1,65 +1,71 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase'; // Ensure this points to your firebase config
+import { doc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
 export async function POST(req: Request) {
   try {
-    // 1. Get the raw body and signature header
     const body = await req.text();
     const signature = req.headers.get('x-squad-signature');
     const secret = process.env.SQUAD_SECRET_KEY;
 
-    if (!secret) {
-      console.error("Squad Secret Key is missing");
-      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
-    }
+    if (!secret) return NextResponse.json({ error: 'Server config error' }, { status: 500 });
 
-    // 2. Verify the webhook is actually from Squad (Security Check)
+    // Verify Signature
     const hash = crypto.createHmac('sha512', secret).update(body).digest('hex');
     if (hash.toLowerCase() !== signature?.toLowerCase()) {
-      console.error("Invalid Squad Webhook Signature");
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // 3. Parse the verified data
     const event = JSON.parse(body);
 
-    // 4. Handle a Successful Payment
     if (event.Event === 'charge.completed' || event.Event === 'transaction.successful') {
       const transactionData = event.Body;
       const paymentRef = transactionData.transaction_ref;
       
-      // We use the transaction reference as a fallback Document ID 
-      // in case the frontend didn't create the ticket code in time.
-      const ticketRef = doc(db, "tickets", paymentRef);
-      const ticketSnap = await getDoc(ticketRef);
+      // Check if this ticket was ALREADY created by the frontend
+      const ticketsRef = collection(db, "tickets");
+      const q = query(ticketsRef, where("squadRef", "==", paymentRef));
+      const querySnapshot = await getDocs(q);
 
-      // Only create if it doesn't already exist from the frontend onSuccess callback
-      if (!ticketSnap.exists()) {
-        await setDoc(ticketRef, {
+      // If no ticket exists with this bank reference, the frontend failed/closed early. 
+      // The Webhook will now step in and generate it.
+      if (querySnapshot.empty) {
+        const newTicketCode = Math.floor(1000000 + Math.random() * 9000000).toString();
+        
+        await setDoc(doc(db, "tickets", newTicketCode), {
           buyerName: transactionData.customer_name || 'Guest',
           email: transactionData.email,
           phone: transactionData.customer_mobile || 'N/A',
-          price: transactionData.amount / 100, // Convert back to Naira from Kobo
+          price: transactionData.amount / 100, 
           status: 'paid',
           squadRef: paymentRef,
-          isWebhookFallback: true, // Tags this ticket so you know how it was generated
+          isWebhookFallback: true,
           createdAt: new Date().toISOString(),
-          // Note: Tier and Capacity would default to regular here unless 
-          // you pass them through Squad's metadata field during checkout.
-          tier: 'regular',
-          totalCapacity: 1,
+          tier: 'regular', // Default fallback
+          totalCapacity: 1, // Default fallback
           admissionsUsed: 0,
         });
+
+        // Trigger the Email API to send the guest their newly generated code
+        try {
+          await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/send-ticket`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: transactionData.email,
+              name: transactionData.customer_name || 'Guest',
+              ticketCode: newTicketCode,
+              tierName: 'Regular Pass',
+              capacity: '1 Guest'
+            })
+          });
+        } catch (err) { console.error("Webhook email trigger failed", err); }
       }
     }
 
-    // Always return 200 OK so Squad knows we received it
     return NextResponse.json({ status: 'success' }, { status: 200 });
-    
   } catch (error) {
-    console.error("Webhook processing error:", error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

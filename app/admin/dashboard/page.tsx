@@ -102,6 +102,34 @@ export default function AdminDashboard() {
     link.click();
   };
 
+  // --- NEW: Resend Email Function ---
+  const handleResendEmail = async (tx: any) => {
+    if (!confirm(`Resend ticket email to ${tx.email}?`)) return;
+    
+    try {
+      const res = await fetch('/api/send-ticket', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: tx.email,
+          name: tx.buyerName,
+          ticketCode: tx.id, // The document ID is the 7-digit code
+          tierName: tx.tier,
+          capacity: tx.totalCapacity
+        })
+      });
+      
+      if (res.ok) {
+        alert('Ticket successfully resent!');
+      } else {
+        alert('Failed to resend ticket. Ensure email API is configured.');
+      }
+    } catch (error) {
+      alert('Network error while resending.');
+    }
+  };
+
+  // --- Manual Mint Function ---
   const handleManualMint = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsMinting(true);
@@ -109,7 +137,7 @@ export default function AdminDashboard() {
       const newTicketCode = Math.floor(1000000 + Math.random() * 9000000).toString();
       const capacityMap: Record<string, number> = { 'regular': 1, 'couples': 2, 'table': 5 };
       const priceMap: Record<string, number> = { 'regular': 5000, 'couples': 15000, 'table': 50000 };
-
+      
       // If Comp, price is 0. If Cash, apply full price.
       const ticketPrice = manualData.type === 'comp' ? 0 : priceMap[manualData.tier];
 
@@ -253,7 +281,6 @@ export default function AdminDashboard() {
               </div>
               
               <div className="flex gap-3 w-full sm:w-auto">
-                {/* NEW: Manual Mint Button */}
                 <button 
                   onClick={() => setShowManualModal(true)} 
                   className="flex-1 sm:flex-none text-sm font-bold bg-purple-600 hover:bg-purple-500 text-white px-4 py-2.5 rounded-lg transition-all flex items-center justify-center gap-2 whitespace-nowrap shadow-lg shadow-purple-900/20"
@@ -283,6 +310,7 @@ export default function AdminDashboard() {
                   <th className="px-6 py-4 font-bold">Tier</th>
                   <th className="px-6 py-4 font-bold">Amount</th>
                   <th className="px-6 py-4 font-bold">Status</th>
+                  <th className="px-6 py-4 font-bold text-right">Actions</th> {/* NEW ACTIONS HEADER */}
                 </tr>
               </thead>
               <tbody className="divide-y divide-purple-900/20">
@@ -302,11 +330,23 @@ export default function AdminDashboard() {
                         {tx.status}
                       </span>
                     </td>
+                    {/* NEW RESEND EMAIL BUTTON */}
+                    <td className="px-6 py-4 text-right">
+                      <button 
+                        onClick={() => handleResendEmail(tx)}
+                        className="p-2 bg-purple-900/30 hover:bg-purple-600 text-purple-300 hover:text-white rounded transition-colors"
+                        title="Resend Ticket Email"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                        </svg>
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {filteredTransactions.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-6 py-12 text-center text-zinc-500">
+                    <td colSpan={6} className="px-6 py-12 text-center text-zinc-500">
                       {searchTerm ? 'No guests found matching your search.' : 'No transactions recorded yet.'}
                     </td>
                   </tr>
