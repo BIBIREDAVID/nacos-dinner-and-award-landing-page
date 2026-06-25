@@ -96,6 +96,23 @@ function CheckoutContent() {
           });
 
           setTicketCode(newTicketCode);
+
+          // Send confirmation email (fire and forget — don't block success modal)
+          fetch('/api/send-ticket', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-internal-key': process.env.NEXT_PUBLIC_INTERNAL_API_SECRET ?? '',
+            },
+            body: JSON.stringify({
+              email:      formData.email,
+              name:       formData.name,
+              ticketCode: newTicketCode,
+              tierName:   selectedTicket.name,
+              capacity:   selectedTicket.capacity,
+            }),
+          }).catch((err) => console.error('Email send failed:', err));
+
           setShowSuccessModal(true);
         } catch (error: any) {
           // Show the actual error so we can diagnose it
@@ -180,11 +197,60 @@ function CheckoutContent() {
       
       {/* Success Modal */}
       {showSuccessModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-[#120a1c] border border-purple-900/30 rounded-2xl p-8 max-w-sm w-full text-center">
-            <h2 className="text-2xl font-serif text-white mb-4">Payment Secured</h2>
-            <div className="bg-[#0b0612] py-4 rounded-xl mb-6 text-4xl font-bold text-purple-400 tracking-widest">{ticketCode}</div>
-            <button onClick={() => setShowSuccessModal(false)} className="w-full py-3 bg-purple-600 rounded-lg text-white font-bold">Done</button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-[#120a1c] border border-purple-500/30 rounded-2xl p-8 max-w-md w-full text-center shadow-2xl shadow-purple-900/20">
+
+            {/* Checkmark */}
+            <div className="w-16 h-16 rounded-full bg-green-500/20 border-2 border-green-500/50 flex items-center justify-center mx-auto mb-6">
+              <svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+
+            <h2 className="text-3xl font-serif text-white mb-1">You're In!</h2>
+            <p className="text-zinc-400 text-sm mb-8">Your ticket has been confirmed for the NACOS Dinner & Awards</p>
+
+            {/* Ticket code */}
+            <div className="bg-[#0b0612] border border-purple-900/40 rounded-xl p-5 mb-6">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">Your Check-In Code</p>
+              <p className="text-4xl font-bold text-purple-400 tracking-widest font-mono">{ticketCode}</p>
+              <p className="text-[11px] text-zinc-600 mt-2">Present this code at the venue entrance</p>
+            </div>
+
+            {/* Ticket details */}
+            <div className="bg-[#0f071c] rounded-xl p-4 mb-6 text-left space-y-3">
+              <div className="flex justify-between text-sm">
+                <span className="text-zinc-500">Name</span>
+                <span className="text-white font-medium">{formData.name}</span>
+              </div>
+              <div className="flex justify-between text-sm border-t border-purple-900/20 pt-3">
+                <span className="text-zinc-500">Tier</span>
+                <span className="text-white font-medium capitalize">{selectedTicket.name}</span>
+              </div>
+              <div className="flex justify-between text-sm border-t border-purple-900/20 pt-3">
+                <span className="text-zinc-500">Admits</span>
+                <span className="text-white font-medium">{selectedTicket.capacity}</span>
+              </div>
+              <div className="flex justify-between text-sm border-t border-purple-900/20 pt-3">
+                <span className="text-zinc-500">Amount Paid</span>
+                <span className="text-green-400 font-bold">₦{totalToPay.toLocaleString()}</span>
+              </div>
+            </div>
+
+            {/* Email notice */}
+            <div className="flex items-center gap-3 bg-blue-900/20 border border-blue-900/30 rounded-lg p-3 mb-6 text-left">
+              <svg className="w-5 h-5 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+              <p className="text-blue-300 text-xs">A confirmation email with your ticket code has been sent to <span className="font-bold">{formData.email}</span></p>
+            </div>
+
+            <button
+              onClick={() => setShowSuccessModal(false)}
+              className="w-full py-3.5 bg-purple-600 hover:bg-purple-500 rounded-xl text-white font-bold transition-colors"
+            >
+              Done
+            </button>
           </div>
         </div>
       )}
