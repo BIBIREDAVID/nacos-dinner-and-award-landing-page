@@ -92,10 +92,11 @@ export async function POST(req: Request) {
     console.log('Squad webhook event:', event.Event, JSON.stringify(event.Body ?? {}).slice(0, 200));
 
     // Accept both event name variants Squad may send
-    const isSuccess = ['charge.completed', 'transaction.successful', 'charge_completed', 'payment.success'].includes(event.Event);
+    const isSuccess = ['charge.completed', 'transaction.successful', 'charge_completed', 'payment.success', 'charge_successful'].includes(event.Event);
 
     if (isSuccess) {
-      const transactionData = event.Body ?? event.data ?? {};
+      // Squad sends data directly on the event object for charge_successful
+      const transactionData = event.Body ?? event.data ?? event;
       const paymentRef      = transactionData.transaction_ref ?? transactionData.reference;
 
       if (!paymentRef) {
