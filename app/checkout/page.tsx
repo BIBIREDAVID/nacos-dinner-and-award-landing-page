@@ -22,10 +22,14 @@ function CheckoutContent() {
 
   const TRANSACTION_FEE = 100; // Fixed Service Fee
 
+  // Set NEXT_PUBLIC_TEST_MODE=true in Vercel to use ₦100 for Regular (live payment test).
+  // Remove or set to false to restore the real ₦5,000 price.
+  const isTestMode = process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+
   const ticketData = {
-    regular: { name: 'Standard Pass', price: 100, capacity: '1 Guest', id: 'regular' },
+    regular: { name: isTestMode ? 'Standard Pass (TEST)' : 'Standard Pass', price: isTestMode ? 100 : 5000, capacity: '1 Guest', id: 'regular' },
     couples: { name: 'Couples Pass', price: 15000, capacity: '2 Guests', id: 'couples' },
-    table: { name: 'Table of 5', price: 50000, capacity: '5 Guests', id: 'table' },
+    table:   { name: 'Table of 5',   price: 50000, capacity: '5 Guests', id: 'table'   },
   };
 
   const selectedTicket = ticketData[tierParam as keyof typeof ticketData] || ticketData.regular;
@@ -93,7 +97,12 @@ function CheckoutContent() {
 
           setTicketCode(newTicketCode);
           setShowSuccessModal(true);
-        } catch (error) { alert("Payment successful, but ticket creation failed."); }
+        } catch (error: any) {
+          // Show the actual error so we can diagnose it
+          const msg = error?.message || error?.code || JSON.stringify(error) || 'Unknown error';
+          alert(`Payment successful, but ticket creation failed.\n\nError: ${msg}`);
+          console.error('Ticket creation error:', error);
+        }
         finally { setIsProcessing(false); }
       },
       onClose: () => setIsProcessing(false)
