@@ -91,7 +91,7 @@ function CheckoutContent() {
             totalCapacity: baseCapacity * quantity,
             admissionsUsed: 0,
             status: 'paid',
-            squadRef: response.reference,
+            squadRef: response.reference || response.transaction_ref || response.transactionRef || response.txref || 'UNKNOWN',
             createdAt: new Date().toISOString()
           });
 
