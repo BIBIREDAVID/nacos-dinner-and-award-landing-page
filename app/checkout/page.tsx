@@ -27,7 +27,7 @@ function CheckoutContent() {
   const isTestMode = process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
   const ticketData = {
-    regular: { name: isTestMode ? 'Standard Pass (TEST)' : 'Standard Pass', price: isTestMode ? 100 : 5000, capacity: '1 Guest', id: 'regular' },
+    regular: { name: isTestMode ? 'Standard Pass (TEST)' : 'Standard Pass', price: isTestMode ? 100 : 100, capacity: '1 Guest', id: 'regular' },
     couples: { name: 'Couples Pass', price: 15000, capacity: '2 Guests', id: 'couples' },
     table:   { name: 'Table of 5',   price: 50000, capacity: '5 Guests', id: 'table'   },
   };
