@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { adminDb } from '@/lib/firebase-admin';
+import { getAdminDb } from '@/lib/firebase-admin';
 
 // Crypto-secure ticket code
 function generateTicketCode(): string {
@@ -65,23 +65,30 @@ function inferTierFromAmount(amountKobo: number): {
 
 export async function POST(req: Request) {
   try {
-    const body      = await req.text();
-    const signature = req.headers.get('x-squad-signature');
-    const secret    = process.env.SQUAD_SECRET_KEY;
+    const body   = await req.text();
+    const secret = process.env.SQUAD_SECRET_KEY;
 
     if (!secret) {
       console.error('SQUAD_SECRET_KEY env var is not set');
       return NextResponse.json({ error: 'Server config error' }, { status: 500 });
     }
 
-    // Verify Squad HMAC-SHA512 signature
-    const hash = crypto.createHmac('sha512', secret).update(body).digest('hex');
-    if (hash.toLowerCase() !== signature?.toLowerCase()) {
-      console.error('Squad webhook signature mismatch');
+    const event = JSON.parse(body);
+
+    // Squad signs with HMAC-SHA512 of JSON.stringify(parsedBody), uppercased
+    // Header name is x-squad-encrypted-body (NOT x-squad-signature)
+    const squadSignature = req.headers.get('x-squad-encrypted-body');
+    const hash = crypto.createHmac('sha512', secret)
+      .update(JSON.stringify(event))
+      .digest('hex')
+      .toUpperCase();
+
+    if (hash !== squadSignature?.toUpperCase()) {
+      console.error('Squad signature mismatch');
+      console.error('Expected:', hash.slice(0, 20), '...');
+      console.error('Received:', squadSignature?.slice(0, 20), '...');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-
-    const event = JSON.parse(body);
     console.log('Squad webhook event:', event.Event, JSON.stringify(event.Body ?? {}).slice(0, 200));
 
     // Accept both event name variants Squad may send
@@ -97,7 +104,7 @@ export async function POST(req: Request) {
       }
 
       // Check if the frontend already created a ticket for this reference
-      const existing = await adminDb.collection('tickets').where('squadRef', '==', paymentRef).limit(1).get();
+      const existing = await getAdminDb().collection('tickets').where('squadRef', '==', paymentRef).limit(1).get();
 
       if (existing.empty) {
         // Frontend didn't create the ticket — webhook creates it as fallback
@@ -105,7 +112,7 @@ export async function POST(req: Request) {
         const amountKobo    = transactionData.amount ?? transactionData.transaction_amount ?? 0;
         const tierInfo      = inferTierFromAmount(Number(amountKobo));
 
-        await adminDb.collection('tickets').doc(newTicketCode).set({
+        await getAdminDb().collection('tickets').doc(newTicketCode).set({
           buyerName:         transactionData.customer_name  || transactionData.name  || 'Guest',
           email:             transactionData.email          || transactionData.customer_email || '',
           phone:             transactionData.customer_mobile || transactionData.phone || 'N/A',
