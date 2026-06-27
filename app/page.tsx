@@ -245,7 +245,7 @@ export default function NacosGalaLanding() {
             <span className="text-[#d46b53] font-bold text-xl"></span>
             <span>© 2026 NACOS-LASU · The Visionary Led Administration</span>
           </div>
-          <div className="text-center">Enquiries: <a href="https://wa.me/2349027719794" className="text-purple-300 hover:text-white transition-colors">09027719794(Big Bolaji)</a></div>
+          <div className="text-center">Enquiries: <a href="https://wa.me/2349027719794?text=Hello,%20I%20am%20contacting%20you%20from%20the%20NACOS%20LASU%20Dinner%20and%20Awards%20Night%20and%20I%20would%20like%20to%20make%20a%20reservation" className="text-purple-300 hover:text-white transition-colors">09027719794(Big Bolaji)</a></div>
           <div className="text-center md:text-right">Built by <span className="text-purple-300">BIBIRESANMI DAVID</span></div>
         </div>
       </footer>
