@@ -55,7 +55,7 @@ export default function NacosGalaLanding() {
             <a href="#tickets" className="w-full sm:w-auto px-8 py-4 bg-white text-[#1b0a33] font-semibold rounded-lg hover:bg-purple-50 transition-colors duration-200 shadow-[0_0_20px_rgba(255,255,255,0.1)] text-center">
               Get Tickets
             </a>
-            <a href="https://wa.me/2349027719794" target="_blank" rel="noopener noreferrer" className="w-full sm:w-auto px-8 py-4 bg-[#230e46] border border-purple-800/50 text-white font-medium rounded-lg hover:bg-[#2d1557] transition-colors duration-200 text-center">
+            <a href="https://wa.me/2349027719794?text=Hello,%20I%20am%20contacting%20you%20from%20the%20NACOS%20LASU%20Dinner%20and%20Awards%20Night%20and%20I%20would%20like%20to%20make%20a%20reservation" target="_blank" rel="noopener noreferrer" className="w-full sm:w-auto px-8 py-4 bg-[#230e46] border border-purple-800/50 text-white font-medium rounded-lg hover:bg-[#2d1557] transition-colors duration-200 text-center">
               Reserve a Table
             </a>
           </div>
