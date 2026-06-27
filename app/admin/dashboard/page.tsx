@@ -1,13 +1,12 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
-import { collection, onSnapshot, query, doc, setDoc, getDoc, updateDoc, increment } from 'firebase/firestore';
+import { collection, onSnapshot, query, doc, setDoc, getDoc, updateDoc, increment, getDocs } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { db, auth } from '@/lib/firebase';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
-// Crypto-secure ticket code
 function generateTicketCode(): string {
   const arr = new Uint8Array(4);
   crypto.getRandomValues(arr);
@@ -23,20 +22,26 @@ const TIER_CONFIG = {
 const ADMIN_EMAILS = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || '')
   .split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
 
+type Tab = 'ledger' | 'staff';
+
 export default function AdminDashboard() {
   const router = useRouter();
 
   // Auth
   const [isAuthorized, setIsAuthorized]   = useState(false);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [userRole, setUserRole]           = useState('');
 
-  // Data
+  // Tabs
+  const [activeTab, setActiveTab] = useState<Tab>('ledger');
+
+  // Ticket data
   const [stats, setStats]             = useState({ totalSold: 0, admitted: 0, revenue: 0 });
   const [tierStats, setTierStats]     = useState({ regular: 0, couples: 0, table: 0 });
   const [transactions, setTransactions] = useState<any[]>([]);
   const [searchTerm, setSearchTerm]   = useState('');
 
-  // Capacity settings
+  // Capacity
   const [caps, setCaps]               = useState({ regular: 200, couples: 50, table: 10 });
   const [isEditingCaps, setIsEditingCaps] = useState(false);
   const [isSaving, setIsSaving]       = useState(false);
@@ -52,20 +57,40 @@ export default function AdminDashboard() {
   const [isMinting, setIsMinting]     = useState(false);
   const [manualData, setManualData]   = useState({ name: '', email: '', phone: '', tier: 'regular', type: 'comp' });
 
-  // Resend
+  // Resend email
   const [resending, setResending]     = useState<string | null>(null);
 
+  // Staff management
+  const [adminUsers, setAdminUsers]       = useState<any[]>([]);
+  const [loadingStaff, setLoadingStaff]   = useState(false);
+  const [showStaffModal, setShowStaffModal] = useState(false);
+  const [newStaff, setNewStaff]           = useState({ email: '', password: '', role: 'usher', name: '' });
+  const [creatingStaff, setCreatingStaff] = useState(false);
+  const [staffError, setStaffError]       = useState('');
+
   useEffect(() => {
-    // ── Auth gate ──────────────────────────────────────────────────────────────
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (!user) { router.push('/admin'); return; }
-      const email = user.email?.toLowerCase() || '';
-      if (!ADMIN_EMAILS.includes(email)) { router.push('/admin/scanner'); return; }
+
+      // Check role in Firestore admins collection
+      const adminDoc = await getDoc(doc(db, 'admins', user.uid));
+      if (!adminDoc.exists() || !adminDoc.data().active) {
+        await signOut(auth);
+        router.push('/admin');
+        return;
+      }
+
+      const role = adminDoc.data().role;
+      if (role !== 'superadmin' && role !== 'admin') {
+        router.push('/admin/scanner');
+        return;
+      }
+
+      setUserRole(role);
       setIsAuthorized(true);
       setIsAuthLoading(false);
     });
 
-    // ── Live ticket feed ───────────────────────────────────────────────────────
     const unsubscribeStats = onSnapshot(query(collection(db, 'tickets')), (snapshot) => {
       let sold = 0, used = 0, rev = 0;
       let regularSold = 0, couplesSold = 0, tableSold = 0;
@@ -88,7 +113,6 @@ export default function AdminDashboard() {
       setTransactions(txs);
     });
 
-    // ── Capacity defaults ──────────────────────────────────────────────────────
     (async () => {
       const capDoc = await getDoc(doc(db, 'settings', 'capacities'));
       if (capDoc.exists()) setCaps(capDoc.data() as any);
@@ -102,7 +126,54 @@ export default function AdminDashboard() {
     return () => { unsubscribeAuth(); unsubscribeStats(); };
   }, [router]);
 
-  // ── Handlers ────────────────────────────────────────────────────────────────
+  // ── Staff handlers ──────────────────────────────────────────────────────────
+
+  const fetchAdminUsers = async () => {
+    setLoadingStaff(true);
+    try {
+      const snap = await getDocs(collection(db, 'admins'));
+      const users: any[] = [];
+      snap.forEach((d) => users.push({ id: d.id, ...d.data() }));
+      users.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      setAdminUsers(users);
+    } catch { alert('Failed to load staff accounts.'); }
+    finally { setLoadingStaff(false); }
+  };
+
+  const handleCreateStaff = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreatingStaff(true);
+    setStaffError('');
+    try {
+      const res = await fetch('/api/admin/create-staff', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-internal-key': process.env.NEXT_PUBLIC_INTERNAL_API_SECRET ?? '',
+        },
+        body: JSON.stringify(newStaff),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create account');
+      setShowStaffModal(false);
+      setNewStaff({ email: '', password: '', role: 'usher', name: '' });
+      fetchAdminUsers();
+      alert(`✅ Account created for ${newStaff.email}`);
+    } catch (err: any) {
+      setStaffError(err.message);
+    } finally { setCreatingStaff(false); }
+  };
+
+  const handleToggleActive = async (staffId: string, currentActive: boolean, email: string) => {
+    const action = currentActive ? 'deactivate' : 'reactivate';
+    if (!confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} account for ${email}?`)) return;
+    try {
+      await updateDoc(doc(db, 'admins', staffId), { active: !currentActive });
+      fetchAdminUsers();
+    } catch { alert('Failed to update account.'); }
+  };
+
+  // ── Ticket handlers ─────────────────────────────────────────────────────────
 
   const handleSaveCaps = async () => {
     setIsSaving(true);
@@ -114,9 +185,8 @@ export default function AdminDashboard() {
   const handleCheckIn = async (tx: any) => {
     if (tx.admissionsUsed >= tx.totalCapacity) return;
     setCheckingIn(tx.id);
-    try {
-      await updateDoc(doc(db, 'tickets', tx.id), { admissionsUsed: increment(1) });
-    } catch { alert('Check-in failed. Try again.'); }
+    try { await updateDoc(doc(db, 'tickets', tx.id), { admissionsUsed: increment(1) }); }
+    catch { alert('Check-in failed.'); }
     finally { setCheckingIn(null); }
   };
 
@@ -128,13 +198,9 @@ export default function AdminDashboard() {
     try {
       const cfg = TIER_CONFIG[newTier as keyof typeof TIER_CONFIG];
       await updateDoc(doc(db, 'tickets', tx.id), {
-        tier: newTier,
-        totalCapacity: cfg.capacity,
-        price: cfg.price,
-        upgradedAt: new Date().toISOString(),
-        upgradedFrom: tx.tier,
+        tier: newTier, totalCapacity: cfg.capacity, price: cfg.price,
+        upgradedAt: new Date().toISOString(), upgradedFrom: tx.tier,
       });
-      setUpgradeTier((prev) => ({ ...prev, [tx.id]: newTier }));
       alert(`Ticket upgraded to ${cfg.label}!`);
     } catch { alert('Upgrade failed.'); }
     finally { setUpgrading(null); }
@@ -146,13 +212,10 @@ export default function AdminDashboard() {
     try {
       const res = await fetch('/api/send-ticket', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-internal-key': process.env.NEXT_PUBLIC_INTERNAL_API_SECRET ?? '',
-        },
-        body: JSON.stringify({ email: tx.email, name: tx.buyerName, ticketCode: tx.id, tierName: tx.tier, capacity: tx.totalCapacity }),
+        headers: { 'Content-Type': 'application/json', 'x-internal-key': process.env.NEXT_PUBLIC_INTERNAL_API_SECRET ?? '' },
+        body: JSON.stringify({ email: tx.email, name: tx.buyerName, ticketCode: tx.id, tierName: tx.tier, capacity: tx.totalCapacity, totalPaid: tx.totalPaid ?? tx.price ?? 0 }),
       });
-      alert(res.ok ? 'Email resent!' : 'Failed to resend. Check Resend config.');
+      alert(res.ok ? 'Email resent!' : 'Failed to resend.');
     } catch { alert('Network error.'); }
     finally { setResending(null); }
   };
@@ -164,20 +227,16 @@ export default function AdminDashboard() {
       const code = generateTicketCode();
       const cfg  = TIER_CONFIG[manualData.tier as keyof typeof TIER_CONFIG];
       await setDoc(doc(db, 'tickets', code), {
-        buyerName:      manualData.name,
-        email:          manualData.email || 'admin-generated@nacos.com',
-        phone:          manualData.phone || 'N/A',
-        tier:           manualData.tier,
-        price:          manualData.type === 'comp' ? 0 : cfg.price,
-        totalPaid:      manualData.type === 'comp' ? 0 : cfg.price,
-        fee:            0,
-        totalCapacity:  cfg.capacity,
-        admissionsUsed: 0,
-        status:         manualData.type === 'comp' ? 'COMP' : 'PAID (CASH)',
-        squadRef:       `MANUAL_${manualData.type.toUpperCase()}_${Date.now()}`,
-        createdAt:      new Date().toISOString(),
+        buyerName: manualData.name, email: manualData.email || 'admin-generated@nacos.com',
+        phone: manualData.phone || 'N/A', tier: manualData.tier,
+        price: manualData.type === 'comp' ? 0 : cfg.price,
+        totalPaid: manualData.type === 'comp' ? 0 : cfg.price,
+        fee: 0, totalCapacity: cfg.capacity, admissionsUsed: 0,
+        status: manualData.type === 'comp' ? 'COMP' : 'PAID (CASH)',
+        squadRef: `MANUAL_${manualData.type.toUpperCase()}_${Date.now()}`,
+        createdAt: new Date().toISOString(),
       });
-      alert(`Ticket created!\nCode: ${code}\nShare this with the guest.`);
+      alert(`Ticket created!\nCode: ${code}`);
       setShowManualModal(false);
       setManualData({ name: '', email: '', phone: '', tier: 'regular', type: 'comp' });
     } catch { alert('Failed to generate ticket.'); }
@@ -207,11 +266,9 @@ export default function AdminDashboard() {
   );
 
   const statusStyle = (status: string) =>
-    status?.includes('COMP')
-      ? 'bg-blue-900/20 text-blue-400 border-blue-900/30'
-      : status === 'paid'
-      ? 'bg-green-900/20 text-green-400 border-green-900/30'
-      : 'bg-amber-900/20 text-amber-400 border-amber-900/30';
+    status?.includes('COMP') ? 'bg-blue-900/20 text-blue-400 border-blue-900/30'
+    : status === 'paid'      ? 'bg-green-900/20 text-green-400 border-green-900/30'
+    : 'bg-amber-900/20 text-amber-400 border-amber-900/30';
 
   if (isAuthLoading || !isAuthorized) return <div className="min-h-screen bg-[#0a0514]" />;
 
@@ -219,29 +276,25 @@ export default function AdminDashboard() {
     <div className="min-h-screen bg-[#0a0514] p-6 md:p-12 text-white font-sans selection:bg-purple-500">
       <div className="max-w-7xl mx-auto space-y-8">
 
-        {/* ── Header ── */}
+        {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-purple-900/40 pb-6 gap-4">
           <div>
-            <h1 className="text-3xl font-serif font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-500">
-              Gala Command Center
-            </h1>
+            <h1 className="text-3xl font-serif font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-500">Gala Command Center</h1>
             <p className="text-zinc-500 text-sm mt-1">Live Event Telemetry & Operations</p>
           </div>
           <nav className="flex items-center space-x-3 text-sm font-medium">
             <span className="text-white bg-purple-600/20 border border-purple-500/30 px-4 py-2 rounded-lg">Dashboard</span>
             <Link href="/admin/scanner" className="text-purple-400 hover:text-white px-4 py-2 transition-colors">Scanner</Link>
-            <button onClick={() => signOut(auth)} className="text-red-400 hover:text-red-300 font-bold border border-red-900/50 bg-red-900/20 px-4 py-2 rounded-lg transition-colors">
-              Logout
-            </button>
+            <button onClick={() => signOut(auth)} className="text-red-400 hover:text-red-300 font-bold border border-red-900/50 bg-red-900/20 px-4 py-2 rounded-lg transition-colors">Logout</button>
           </nav>
         </div>
 
-        {/* ── KPI Cards ── */}
+        {/* KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {[
-            { label: 'Total Tickets Sold',    value: stats.totalSold,  suffix: 'tickets', color: 'purple' },
-            { label: 'Guests Admitted',        value: stats.admitted,   suffix: `/ ${stats.totalSold} total`, color: 'blue' },
-            { label: 'Gross Revenue',          value: `₦${stats.revenue.toLocaleString()}`, suffix: '', color: 'green' },
+            { label: 'Total Tickets Sold', value: stats.totalSold, suffix: 'tickets', color: 'purple' },
+            { label: 'Guests Admitted',    value: stats.admitted,  suffix: `/ ${stats.totalSold} total`, color: 'blue' },
+            { label: 'Gross Revenue',      value: `₦${stats.revenue.toLocaleString()}`, suffix: '', color: 'green' },
           ].map((k) => (
             <div key={k.label} className={`bg-[#150a26] p-6 rounded-2xl border border-${k.color}-900/50 shadow-2xl`}>
               <p className={`text-${k.color}-400/70 text-xs font-bold tracking-widest uppercase mb-2`}>{k.label}</p>
@@ -253,211 +306,252 @@ export default function AdminDashboard() {
           ))}
         </div>
 
-        {/* ── Capacity ── */}
-        <div className="bg-[#150a26] rounded-2xl border border-purple-900/50 shadow-xl overflow-hidden">
-          <div className="flex justify-between items-center p-6 border-b border-purple-900/30 bg-[#1a0c2e]">
-            <h2 className="text-xl font-serif">Capacity & Inventory</h2>
-            {!isEditingCaps
-              ? <button onClick={() => setIsEditingCaps(true)} className="text-xs font-bold bg-purple-900/40 text-purple-300 border border-purple-700/50 hover:bg-purple-800 px-4 py-2 rounded-lg transition-colors">EDIT LIMITS</button>
-              : <button onClick={handleSaveCaps} disabled={isSaving} className="text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg disabled:opacity-50">{isSaving ? 'SAVING...' : 'SAVE CHANGES'}</button>
-            }
-          </div>
-          <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-8">
-            {([
-              { id: 'regular', name: 'Regular Pass', sold: tierStats.regular, cap: caps.regular, color: 'bg-purple-500' },
-              { id: 'couples', name: 'Couples Pass', sold: tierStats.couples, cap: caps.couples, color: 'bg-pink-500'   },
-              { id: 'table',   name: 'Table of 5',   sold: tierStats.table,   cap: caps.table,   color: 'bg-amber-500'  },
-            ] as const).map((tier) => {
-              const pct = tier.cap > 0 ? Math.min(100, Math.round((tier.sold / tier.cap) * 100)) : 0;
-              return (
-                <div key={tier.id} className="space-y-3">
-                  <div className="flex justify-between items-end">
-                    <p className="text-zinc-400 text-xs uppercase tracking-wider font-bold">{tier.name}</p>
-                    {isEditingCaps
-                      ? <input type="number" value={caps[tier.id as keyof typeof caps]} onChange={(e) => setCaps({ ...caps, [tier.id]: Number(e.target.value) })} className="w-20 bg-[#0a0514] border border-purple-600 rounded px-2 py-1 text-white text-sm text-right focus:outline-none" />
-                      : <p className="text-sm font-bold text-white">{tier.sold} <span className="text-zinc-600">/ {tier.cap}</span></p>
-                    }
-                  </div>
-                  <div className="w-full bg-[#0a0514] rounded-full h-2.5 border border-purple-900/30 overflow-hidden">
-                    <div className={`h-2.5 rounded-full ${tier.color} transition-all duration-1000`} style={{ width: `${pct}%` }} />
-                  </div>
-                  <p className="text-right text-[10px] text-zinc-500 font-mono">{pct}% sold</p>
-                </div>
-              );
-            })}
-          </div>
+        {/* Tab Switcher */}
+        <div className="flex gap-2 border-b border-purple-900/30">
+          {(['ledger', 'staff'] as Tab[]).map((tab) => (
+            <button key={tab} onClick={() => { setActiveTab(tab); if (tab === 'staff') fetchAdminUsers(); }}
+              className={`px-6 py-3 text-sm font-bold capitalize transition-colors border-b-2 -mb-px ${activeTab === tab ? 'border-purple-500 text-white' : 'border-transparent text-zinc-500 hover:text-zinc-300'}`}>
+              {tab === 'ledger' ? '📋 Guest Ledger' : '👥 Staff Accounts'}
+            </button>
+          ))}
         </div>
 
-        {/* ── Transaction Ledger ── */}
-        <div className="bg-[#150a26] rounded-2xl border border-purple-900/50 shadow-xl overflow-hidden">
-          <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center p-6 border-b border-purple-900/30 bg-[#1a0c2e] gap-4">
-            <h2 className="text-xl font-serif">Guest Ledger</h2>
-            <div className="flex flex-col sm:flex-row w-full xl:w-auto gap-3">
-              <div className="relative w-full sm:w-auto">
-                <input
-                  type="text" placeholder="Search name, email or code…" value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full sm:w-64 bg-[#0a0514] border border-purple-800/50 text-sm text-white rounded-lg pl-4 pr-10 py-2.5 focus:outline-none focus:border-purple-500 transition-colors"
-                />
-                {searchTerm && <button onClick={() => setSearchTerm('')} className="absolute right-3 top-2.5 text-zinc-500 hover:text-white">✕</button>}
+        {/* ── LEDGER TAB ── */}
+        {activeTab === 'ledger' && (
+          <div className="space-y-8">
+
+            {/* Capacity */}
+            <div className="bg-[#150a26] rounded-2xl border border-purple-900/50 shadow-xl overflow-hidden">
+              <div className="flex justify-between items-center p-6 border-b border-purple-900/30 bg-[#1a0c2e]">
+                <h2 className="text-xl font-serif">Capacity & Inventory</h2>
+                {!isEditingCaps
+                  ? <button onClick={() => setIsEditingCaps(true)} className="text-xs font-bold bg-purple-900/40 text-purple-300 border border-purple-700/50 hover:bg-purple-800 px-4 py-2 rounded-lg transition-colors">EDIT LIMITS</button>
+                  : <button onClick={handleSaveCaps} disabled={isSaving} className="text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg disabled:opacity-50">{isSaving ? 'SAVING...' : 'SAVE CHANGES'}</button>
+                }
               </div>
-              <div className="flex gap-3 w-full sm:w-auto">
-                <button onClick={() => setShowManualModal(true)} className="flex-1 sm:flex-none text-sm font-bold bg-purple-600 hover:bg-purple-500 text-white px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 whitespace-nowrap">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                  Mint Ticket
-                </button>
-                <button onClick={handleExportCSV} disabled={!transactions.length} className="flex-1 sm:flex-none text-sm font-bold bg-green-600/20 border border-green-600/50 hover:bg-green-600 text-green-400 hover:text-white px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                  Export CSV
-                </button>
+              <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-8">
+                {([
+                  { id: 'regular', name: 'Regular Pass', sold: tierStats.regular, cap: caps.regular, color: 'bg-purple-500' },
+                  { id: 'couples', name: 'Couples Pass', sold: tierStats.couples, cap: caps.couples, color: 'bg-pink-500'   },
+                  { id: 'table',   name: 'Table of 5',   sold: tierStats.table,   cap: caps.table,   color: 'bg-amber-500'  },
+                ] as const).map((tier) => {
+                  const pct = tier.cap > 0 ? Math.min(100, Math.round((tier.sold / tier.cap) * 100)) : 0;
+                  return (
+                    <div key={tier.id} className="space-y-3">
+                      <div className="flex justify-between items-end">
+                        <p className="text-zinc-400 text-xs uppercase tracking-wider font-bold">{tier.name}</p>
+                        {isEditingCaps
+                          ? <input type="number" value={caps[tier.id as keyof typeof caps]} onChange={(e) => setCaps({ ...caps, [tier.id]: Number(e.target.value) })} className="w-20 bg-[#0a0514] border border-purple-600 rounded px-2 py-1 text-white text-sm text-right focus:outline-none" />
+                          : <p className="text-sm font-bold text-white">{tier.sold} <span className="text-zinc-600">/ {tier.cap}</span></p>
+                        }
+                      </div>
+                      <div className="w-full bg-[#0a0514] rounded-full h-2.5 border border-purple-900/30 overflow-hidden">
+                        <div className={`h-2.5 rounded-full ${tier.color} transition-all duration-1000`} style={{ width: `${pct}%` }} />
+                      </div>
+                      <p className="text-right text-[10px] text-zinc-500 font-mono">{pct}% sold</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Transaction Ledger */}
+            <div className="bg-[#150a26] rounded-2xl border border-purple-900/50 shadow-xl overflow-hidden">
+              <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center p-6 border-b border-purple-900/30 bg-[#1a0c2e] gap-4">
+                <h2 className="text-xl font-serif">Guest Ledger</h2>
+                <div className="flex flex-col sm:flex-row w-full xl:w-auto gap-3">
+                  <div className="relative w-full sm:w-auto">
+                    <input type="text" placeholder="Search name, email or code…" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full sm:w-64 bg-[#0a0514] border border-purple-800/50 text-sm text-white rounded-lg pl-4 pr-10 py-2.5 focus:outline-none focus:border-purple-500 transition-colors" />
+                    {searchTerm && <button onClick={() => setSearchTerm('')} className="absolute right-3 top-2.5 text-zinc-500 hover:text-white">✕</button>}
+                  </div>
+                  <div className="flex gap-3 w-full sm:w-auto">
+                    <button onClick={() => setShowManualModal(true)} className="flex-1 sm:flex-none text-sm font-bold bg-purple-600 hover:bg-purple-500 text-white px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 whitespace-nowrap">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                      Mint Ticket
+                    </button>
+                    <button onClick={handleExportCSV} disabled={!transactions.length} className="flex-1 sm:flex-none text-sm font-bold bg-green-600/20 border border-green-600/50 hover:bg-green-600 text-green-400 hover:text-white px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                      Export CSV
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm text-zinc-300">
+                  <thead className="bg-[#0f071c] text-[10px] uppercase tracking-widest text-zinc-500 border-b border-purple-900/30">
+                    <tr>
+                      <th className="px-6 py-4 font-bold">Guest</th>
+                      <th className="px-6 py-4 font-bold">Code</th>
+                      <th className="px-6 py-4 font-bold">Tier</th>
+                      <th className="px-6 py-4 font-bold">Paid</th>
+                      <th className="px-6 py-4 font-bold">Admissions</th>
+                      <th className="px-6 py-4 font-bold">Status</th>
+                      <th className="px-6 py-4 font-bold text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-purple-900/20">
+                    {filtered.map((tx) => {
+                      const isExpanded = expandedId === tx.id;
+                      const admitted   = tx.admissionsUsed ?? 0;
+                      const capacity   = tx.totalCapacity ?? 1;
+                      const full       = admitted >= capacity;
+                      return (
+                        <React.Fragment key={tx.id}>
+                          <tr className="hover:bg-purple-900/10 transition-colors cursor-pointer group" onClick={() => setExpandedId(isExpanded ? null : tx.id)}>
+                            <td className="px-6 py-4">
+                              <p className="font-bold text-white group-hover:text-purple-300 transition-colors">{tx.buyerName}</p>
+                              <p className="text-xs text-zinc-500">{tx.email}</p>
+                            </td>
+                            <td className="px-6 py-4 font-mono text-purple-400 text-xs">{tx.id}</td>
+                            <td className="px-6 py-4 capitalize font-medium">{tx.tier}</td>
+                            <td className="px-6 py-4 font-medium">₦{(tx.totalPaid ?? tx.price ?? 0).toLocaleString()}</td>
+                            <td className="px-6 py-4">
+                              <span className={`text-xs font-bold ${full ? 'text-red-400' : 'text-green-400'}`}>{admitted}/{capacity}</span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className={`px-2.5 py-1 rounded text-[10px] uppercase font-bold border tracking-wider ${statusStyle(tx.status)}`}>{tx.status}</span>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <span className="text-zinc-600 text-xs">{isExpanded ? '▲' : '▼'}</span>
+                            </td>
+                          </tr>
+                          {isExpanded && (
+                            <tr className="bg-[#0f071c]">
+                              <td colSpan={7} className="px-6 pb-6 pt-4">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                  {/* Guest info */}
+                                  <div className="bg-[#150a26] rounded-xl p-4 border border-purple-900/30 space-y-2">
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3">Guest Details</p>
+                                    <p className="text-xs text-zinc-400">📧 {tx.email}</p>
+                                    <p className="text-xs text-zinc-400">📱 {tx.phone || 'N/A'}</p>
+                                    <p className="text-xs text-zinc-400">🕐 {tx.createdAt ? new Date(tx.createdAt).toLocaleString() : '—'}</p>
+                                    {tx.upgradedFrom && <p className="text-xs text-amber-400">⬆ Upgraded from {tx.upgradedFrom}</p>}
+                                    <button onClick={(e) => { e.stopPropagation(); handleResendEmail(tx); }} disabled={resending === tx.id}
+                                      className="mt-2 w-full py-2 text-xs font-bold bg-purple-900/30 hover:bg-purple-600 text-purple-300 hover:text-white rounded-lg transition-colors disabled:opacity-50">
+                                      {resending === tx.id ? 'Sending…' : '✉ Resend Email'}
+                                    </button>
+                                  </div>
+                                  {/* Check-in */}
+                                  <div className="bg-[#150a26] rounded-xl p-4 border border-purple-900/30">
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3">Check-In</p>
+                                    <div className="flex items-center gap-3 mb-4">
+                                      <div className="flex-1 bg-[#0a0514] rounded-lg p-3 text-center">
+                                        <p className="text-3xl font-bold text-white">{admitted}</p>
+                                        <p className="text-[10px] text-zinc-500 uppercase mt-1">Admitted</p>
+                                      </div>
+                                      <span className="text-zinc-600 text-lg">/</span>
+                                      <div className="flex-1 bg-[#0a0514] rounded-lg p-3 text-center">
+                                        <p className="text-3xl font-bold text-purple-400">{capacity}</p>
+                                        <p className="text-[10px] text-zinc-500 uppercase mt-1">Total</p>
+                                      </div>
+                                    </div>
+                                    {full ? (
+                                      <div className="w-full py-3 text-center text-xs font-bold bg-red-900/20 text-red-400 border border-red-900/30 rounded-lg">ALL GUESTS ADMITTED</div>
+                                    ) : (
+                                      <button onClick={(e) => { e.stopPropagation(); handleCheckIn(tx); }} disabled={checkingIn === tx.id}
+                                        className="w-full py-3 text-sm font-bold bg-green-600 hover:bg-green-500 text-white rounded-lg transition-colors disabled:opacity-50">
+                                        {checkingIn === tx.id ? 'Processing…' : `✓ Admit 1 Guest (${capacity - admitted} left)`}
+                                      </button>
+                                    )}
+                                  </div>
+                                  {/* Upgrade */}
+                                  <div className="bg-[#150a26] rounded-xl p-4 border border-purple-900/30">
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3">Upgrade Ticket</p>
+                                    <p className="text-xs text-zinc-500 mb-3">Current: <span className="text-white capitalize font-bold">{tx.tier}</span></p>
+                                    <select value={upgradeTier[tx.id] ?? tx.tier} onChange={(e) => { e.stopPropagation(); setUpgradeTier((p) => ({ ...p, [tx.id]: e.target.value })); }} onClick={(e) => e.stopPropagation()}
+                                      className="w-full bg-[#0a0514] border border-purple-800/50 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-purple-500 mb-3 appearance-none">
+                                      <option value="regular">Regular — ₦5,000</option>
+                                      <option value="couples">Couples — ₦15,000</option>
+                                      <option value="table">Table of 5 — ₦50,000</option>
+                                    </select>
+                                    <button onClick={(e) => { e.stopPropagation(); handleUpgrade(tx); }} disabled={upgrading === tx.id || (upgradeTier[tx.id] ?? tx.tier) === tx.tier}
+                                      className="w-full py-2.5 text-xs font-bold bg-amber-600/20 border border-amber-600/50 hover:bg-amber-600 text-amber-400 hover:text-white rounded-lg transition-colors disabled:opacity-30">
+                                      {upgrading === tx.id ? 'Upgrading…' : 'Apply Upgrade'}
+                                    </button>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                    {!filtered.length && (
+                      <tr><td colSpan={7} className="px-6 py-12 text-center text-zinc-500">{searchTerm ? 'No guests match your search.' : 'No transactions yet.'}</td></tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
+        )}
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm text-zinc-300">
-              <thead className="bg-[#0f071c] text-[10px] uppercase tracking-widest text-zinc-500 border-b border-purple-900/30">
-                <tr>
-                  <th className="px-6 py-4 font-bold">Guest</th>
-                  <th className="px-6 py-4 font-bold">Code</th>
-                  <th className="px-6 py-4 font-bold">Tier</th>
-                  <th className="px-6 py-4 font-bold">Paid</th>
-                  <th className="px-6 py-4 font-bold">Admissions</th>
-                  <th className="px-6 py-4 font-bold">Status</th>
-                  <th className="px-6 py-4 font-bold text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-purple-900/20">
-                {filtered.map((tx) => {
-                  const isExpanded = expandedId === tx.id;
-                  const admitted   = tx.admissionsUsed ?? 0;
-                  const capacity   = tx.totalCapacity ?? 1;
-                  const full       = admitted >= capacity;
-
-                  return (
-                    <React.Fragment key={tx.id}>
-                      {/* ── Main row ── */}
-                      <tr
-                        className="hover:bg-purple-900/10 transition-colors cursor-pointer group"
-                        onClick={() => setExpandedId(isExpanded ? null : tx.id)}
-                      >
+        {/* ── STAFF TAB ── */}
+        {activeTab === 'staff' && (
+          <div className="bg-[#150a26] rounded-2xl border border-purple-900/50 shadow-xl overflow-hidden">
+            <div className="flex justify-between items-center p-6 border-b border-purple-900/30 bg-[#1a0c2e]">
+              <div>
+                <h2 className="text-xl font-serif">Staff Accounts</h2>
+                <p className="text-zinc-500 text-xs mt-1">Manage admin and usher access</p>
+              </div>
+              <button onClick={() => setShowStaffModal(true)} className="text-sm font-bold bg-purple-600 hover:bg-purple-500 text-white px-4 py-2.5 rounded-lg flex items-center gap-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                Add Staff
+              </button>
+            </div>
+            {loadingStaff ? (
+              <div className="p-12 text-center text-zinc-500">Loading staff accounts...</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm text-zinc-300">
+                  <thead className="bg-[#0f071c] text-[10px] uppercase tracking-widest text-zinc-500 border-b border-purple-900/30">
+                    <tr>
+                      <th className="px-6 py-4 font-bold">Name / Email</th>
+                      <th className="px-6 py-4 font-bold">Role</th>
+                      <th className="px-6 py-4 font-bold">Created</th>
+                      <th className="px-6 py-4 font-bold">Status</th>
+                      <th className="px-6 py-4 font-bold text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-purple-900/20">
+                    {adminUsers.map((staff) => (
+                      <tr key={staff.id} className="hover:bg-purple-900/10 transition-colors">
                         <td className="px-6 py-4">
-                          <p className="font-bold text-white group-hover:text-purple-300 transition-colors">{tx.buyerName}</p>
-                          <p className="text-xs text-zinc-500">{tx.email}</p>
+                          <p className="font-bold text-white">{staff.name || '—'}</p>
+                          <p className="text-xs text-zinc-500">{staff.email}</p>
                         </td>
-                        <td className="px-6 py-4 font-mono text-purple-400 text-xs">{tx.id}</td>
-                        <td className="px-6 py-4 capitalize font-medium">{tx.tier}</td>
-                        <td className="px-6 py-4 font-medium">₦{(tx.totalPaid ?? tx.price ?? 0).toLocaleString()}</td>
                         <td className="px-6 py-4">
-                          <span className={`text-xs font-bold ${full ? 'text-red-400' : 'text-green-400'}`}>
-                            {admitted}/{capacity}
+                          <span className={`px-2.5 py-1 rounded text-[10px] uppercase font-bold border tracking-wider ${staff.role === 'superadmin' ? 'bg-amber-900/20 text-amber-400 border-amber-900/30' : staff.role === 'admin' ? 'bg-purple-900/20 text-purple-400 border-purple-900/30' : 'bg-blue-900/20 text-blue-400 border-blue-900/30'}`}>
+                            {staff.role}
                           </span>
                         </td>
+                        <td className="px-6 py-4 text-zinc-500 text-xs">{staff.createdAt ? new Date(staff.createdAt).toLocaleDateString() : '—'}</td>
                         <td className="px-6 py-4">
-                          <span className={`px-2.5 py-1 rounded text-[10px] uppercase font-bold border tracking-wider ${statusStyle(tx.status)}`}>
-                            {tx.status}
+                          <span className={`px-2.5 py-1 rounded text-[10px] uppercase font-bold border ${staff.active ? 'bg-green-900/20 text-green-400 border-green-900/30' : 'bg-red-900/20 text-red-400 border-red-900/30'}`}>
+                            {staff.active ? 'Active' : 'Inactive'}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-right">
-                          <span className="text-zinc-600 text-xs">{isExpanded ? '▲' : '▼'}</span>
+                          {staff.role !== 'superadmin' && (
+                            <button onClick={() => handleToggleActive(staff.id, staff.active, staff.email)}
+                              className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-colors ${staff.active ? 'border-red-900/50 text-red-400 hover:bg-red-900/20' : 'border-green-900/50 text-green-400 hover:bg-green-900/20'}`}>
+                              {staff.active ? 'Deactivate' : 'Reactivate'}
+                            </button>
+                          )}
                         </td>
                       </tr>
-
-                      {/* ── Expanded panel ── */}
-                      {isExpanded && (
-                        <tr className="bg-[#0f071c]">
-                          <td colSpan={7} className="px-6 pb-6 pt-4">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-
-                              {/* Guest info */}
-                              <div className="bg-[#150a26] rounded-xl p-4 border border-purple-900/30 space-y-2">
-                                <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3">Guest Details</p>
-                                <p className="text-xs text-zinc-400">📧 {tx.email}</p>
-                                <p className="text-xs text-zinc-400">📱 {tx.phone || 'N/A'}</p>
-                                <p className="text-xs text-zinc-400">🕐 {tx.createdAt ? new Date(tx.createdAt).toLocaleString() : '—'}</p>
-                                {tx.squadRef && <p className="text-xs text-zinc-600 font-mono break-all">Ref: {tx.squadRef}</p>}
-                                {tx.upgradedFrom && (
-                                  <p className="text-xs text-amber-400">⬆ Upgraded from {tx.upgradedFrom}</p>
-                                )}
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); handleResendEmail(tx); }}
-                                  disabled={resending === tx.id}
-                                  className="mt-2 w-full py-2 text-xs font-bold bg-purple-900/30 hover:bg-purple-600 text-purple-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
-                                >
-                                  {resending === tx.id ? 'Sending…' : '✉ Resend Email'}
-                                </button>
-                              </div>
-
-                              {/* Check-in */}
-                              <div className="bg-[#150a26] rounded-xl p-4 border border-purple-900/30">
-                                <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3">Check-In</p>
-                                <div className="flex items-center gap-3 mb-4">
-                                  <div className="flex-1 bg-[#0a0514] rounded-lg p-3 text-center">
-                                    <p className="text-3xl font-bold text-white">{admitted}</p>
-                                    <p className="text-[10px] text-zinc-500 uppercase mt-1">Admitted</p>
-                                  </div>
-                                  <span className="text-zinc-600 text-lg">/</span>
-                                  <div className="flex-1 bg-[#0a0514] rounded-lg p-3 text-center">
-                                    <p className="text-3xl font-bold text-purple-400">{capacity}</p>
-                                    <p className="text-[10px] text-zinc-500 uppercase mt-1">Total</p>
-                                  </div>
-                                </div>
-                                {full ? (
-                                  <div className="w-full py-3 text-center text-xs font-bold bg-red-900/20 text-red-400 border border-red-900/30 rounded-lg">
-                                    ALL GUESTS ADMITTED
-                                  </div>
-                                ) : (
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); handleCheckIn(tx); }}
-                                    disabled={checkingIn === tx.id}
-                                    className="w-full py-3 text-sm font-bold bg-green-600 hover:bg-green-500 text-white rounded-lg transition-colors disabled:opacity-50"
-                                  >
-                                    {checkingIn === tx.id ? 'Processing…' : `✓ Admit 1 Guest (${capacity - admitted} left)`}
-                                  </button>
-                                )}
-                              </div>
-
-                              {/* Upgrade */}
-                              <div className="bg-[#150a26] rounded-xl p-4 border border-purple-900/30">
-                                <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3">Upgrade Ticket</p>
-                                <p className="text-xs text-zinc-500 mb-3">Current tier: <span className="text-white capitalize font-bold">{tx.tier}</span></p>
-                                <select
-                                  value={upgradeTier[tx.id] ?? tx.tier}
-                                  onChange={(e) => { e.stopPropagation(); setUpgradeTier((prev) => ({ ...prev, [tx.id]: e.target.value })); }}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="w-full bg-[#0a0514] border border-purple-800/50 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-purple-500 mb-3 appearance-none"
-                                >
-                                  <option value="regular">Regular — ₦5,000</option>
-                                  <option value="couples">Couples — ₦15,000</option>
-                                  <option value="table">Table of 5 — ₦50,000</option>
-                                </select>
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); handleUpgrade(tx); }}
-                                  disabled={upgrading === tx.id || (upgradeTier[tx.id] ?? tx.tier) === tx.tier}
-                                  className="w-full py-2.5 text-xs font-bold bg-amber-600/20 border border-amber-600/50 hover:bg-amber-600 text-amber-400 hover:text-white rounded-lg transition-colors disabled:opacity-30"
-                                >
-                                  {upgrading === tx.id ? 'Upgrading…' : 'Apply Upgrade'}
-                                </button>
-                              </div>
-
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-                {!filtered.length && (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-zinc-500">
-                      {searchTerm ? 'No guests match your search.' : 'No transactions yet.'}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                    ))}
+                    {!adminUsers.length && (
+                      <tr><td colSpan={5} className="px-6 py-12 text-center text-zinc-500">No staff accounts yet. Add one above.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        </div>
+        )}
+
       </div>
 
       {/* ── Mint Modal ── */}
@@ -498,14 +592,50 @@ export default function AdminDashboard() {
               </div>
               <div className="flex gap-3 pt-4 mt-2 border-t border-purple-900/30">
                 <button type="button" onClick={() => setShowManualModal(false)} className="flex-1 py-3 border border-purple-900 hover:bg-purple-900/30 text-white font-bold rounded-lg transition-colors">Cancel</button>
-                <button type="submit" disabled={isMinting} className="flex-1 py-3 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold rounded-lg transition-colors">
-                  {isMinting ? 'Minting…' : 'Generate Code'}
-                </button>
+                <button type="submit" disabled={isMinting} className="flex-1 py-3 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold rounded-lg transition-colors">{isMinting ? 'Minting…' : 'Generate Code'}</button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* ── Add Staff Modal ── */}
+      {showStaffModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+          <div className="bg-[#150a26] border border-purple-900/50 rounded-2xl p-8 max-w-md w-full shadow-2xl">
+            <h2 className="text-2xl font-serif text-white mb-1">Add Staff Account</h2>
+            <p className="text-zinc-400 text-sm mb-6">Creates a Firebase Auth account and grants portal access.</p>
+            <form onSubmit={handleCreateStaff} className="space-y-4">
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-1.5">Full Name</label>
+                <input required type="text" value={newStaff.name} onChange={(e) => setNewStaff({ ...newStaff, name: e.target.value })} className="w-full bg-[#0a0514] border border-purple-800/50 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-purple-500" placeholder="e.g. Tolu Adeyemi" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-1.5">Email</label>
+                <input required type="email" value={newStaff.email} onChange={(e) => setNewStaff({ ...newStaff, email: e.target.value })} className="w-full bg-[#0a0514] border border-purple-800/50 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-purple-500" placeholder="staff@email.com" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-1.5">Password</label>
+                <input required type="text" value={newStaff.password} onChange={(e) => setNewStaff({ ...newStaff, password: e.target.value })} className="w-full bg-[#0a0514] border border-purple-800/50 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-purple-500 font-mono" placeholder="Min. 8 characters" minLength={8} />
+                <p className="text-zinc-600 text-xs mt-1">Share this with the staff member directly.</p>
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-1.5">Role</label>
+                <select value={newStaff.role} onChange={(e) => setNewStaff({ ...newStaff, role: e.target.value })} className="w-full bg-[#0a0514] border border-purple-800/50 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-purple-500 appearance-none">
+                  <option value="usher">Usher — scanner access only</option>
+                  <option value="admin">Admin — full dashboard access</option>
+                </select>
+              </div>
+              {staffError && <p className="text-red-400 text-sm bg-red-900/20 border border-red-900/30 p-3 rounded-lg">{staffError}</p>}
+              <div className="flex gap-3 pt-4 border-t border-purple-900/30">
+                <button type="button" onClick={() => { setShowStaffModal(false); setStaffError(''); }} className="flex-1 py-3 border border-purple-900 hover:bg-purple-900/30 text-white font-bold rounded-lg transition-colors">Cancel</button>
+                <button type="submit" disabled={creatingStaff} className="flex-1 py-3 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold rounded-lg transition-colors">{creatingStaff ? 'Creating...' : 'Create Account'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
